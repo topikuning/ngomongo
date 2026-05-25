@@ -83,6 +83,8 @@ export async function resetMemory(waNumber: string): Promise<void> {
   await redis.del(memoryKey(n));
 }
 
+const STRUCTURED_MARKER = /=== (PERAN KAMU|ATURAN PERAN) ===/;
+
 export function buildMessagesForLLM(
   systemPrompt: string,
   memory: MemoryState,
@@ -90,21 +92,33 @@ export function buildMessagesForLLM(
 ): BaseMessage[] {
   const parts: string[] = [systemPrompt.trim()];
   if (memory.summary) {
-    parts.push(
-      "\n\n---\n" +
-        "Konteks tentang lawan bicaramu (untuk PEMAHAMAN, bukan untuk ditiru mentah-mentah):\n" +
-        memory.summary +
-        "\n\n" +
-        "PEDOMAN ADAPTASI STYLE — penting, baca dengan cermat:\n" +
-        "1. TIRU dari lawan bicara: tone (santai/formal/playful), tingkat keformalan bahasa, " +
-        "panjang pesan tipikal, penggunaan emoji, slang/singkatan umum yang dia pakai " +
-        "(mis. 'gw', 'lo', 'bgt', 'btw').\n" +
-        "2. JANGAN TIRU panggilan/sebutan yang dia pakai UNTUKMU (mis. 'nak', 'sayang', " +
-        "'kak', 'pak', 'bro', 'mas', 'mbak'). Itu adalah panggilan UNTUKMU, BUKAN " +
-        "panggilan yang harus kamu balikkan ke dia. Pakai panggilan yang sesuai dengan " +
-        "PERAN-mu yang sudah ditetapkan di paling atas.\n" +
-        "3. Kalau ragu soal panggilan: prioritaskan peran-mu di atas style-imitation.",
-    );
+    const isStructured = STRUCTURED_MARKER.test(memory.summary);
+    if (isStructured) {
+      // Summary baru sudah self-contained dengan blok ATURAN PERAN-nya
+      // sendiri. Tambahkan reminder ringan saja yang menekankan
+      // NATURAL — supaya AI tidak kaku ikuti checklist.
+      parts.push(
+        "\n\n---\n" +
+          memory.summary +
+          "\n\n" +
+          "Cara membalas:\n" +
+          "- Balas seperti manusia ngobrol — natural, mengalir, bukan checklist. Profil di atas adalah PANDUAN, bukan resep kaku.\n" +
+          "- Boleh hangat, lucu, bercanda sesuai konteks — tidak perlu selalu pakai tone yang ekstrem.\n" +
+          "- Yang krusial cuma dua: (a) peran-mu tidak tertukar; (b) jangan tiru kata panggilan yang lawan bicara pakai untukmu — pakai panggilan dari blok PERAN KAMU.",
+      );
+    } else {
+      // Format summary lama (=== KONTEKS / STYLE BAHASA ===). Pakai
+      // pedoman verbose karena tidak ada aturan peran eksplisit di summary.
+      parts.push(
+        "\n\n---\n" +
+          "Konteks tentang lawan bicaramu (untuk pemahaman, bukan ditiru mentah-mentah):\n" +
+          memory.summary +
+          "\n\n" +
+          "Pedoman: tiru tone, keformalan, emoji, dan slang umum lawan bicara. " +
+          "JANGAN tiru kata panggilan yang dia pakai untukmu (nak/sayang/dst) — " +
+          "pakai panggilan yang sesuai PERAN-mu. Balas natural seperti percakapan manusia.",
+      );
+    }
   }
   const messages: BaseMessage[] = [new SystemMessage(parts.join(""))];
   for (const m of memory.recent_messages) {
@@ -115,6 +129,53 @@ export function buildMessagesForLLM(
 }
 
 async function summarize(
+  oldSummary: string,
+  messages: RecentMessage[],
+  waNumber: string,
+): Promise<string> {
+  // Kalau summary lama sudah structured (punya blok PERAN KAMU /
+  // ATURAN PERAN), JANGAN dihapus. Hanya update blok TENTANG LAWAN
+  // BICARA dengan info baru. Tanpa ini, rolling summarize akan
+  // menghapus persona terkunci dan peran bisa kacau lagi.
+  if (STRUCTURED_MARKER.test(oldSummary)) {
+    return summarizeStructured(oldSummary, messages, waNumber);
+  }
+  return summarizeLegacy(oldSummary, messages, waNumber);
+}
+
+async function summarizeStructured(
+  oldSummary: string,
+  messages: RecentMessage[],
+  waNumber: string,
+): Promise<string> {
+  const convo = messages
+    .map((m) => `${m.role === "user" ? "Lawan bicara" : "Kamu (AI)"}: ${m.content}`)
+    .join("\n");
+
+  const prompt = `Berikut profil persona yang sedang aktif:
+
+${oldSummary}
+
+Percakapan terbaru:
+${convo}
+
+Tugasmu: kembalikan profil persona ini dengan perubahan MINIMAL.
+
+ATURAN UPDATE:
+1. Blok "=== PERAN KAMU (AI MEMERANKAN INI) ===" → JANGAN diubah. Pertahankan apa adanya verbatim: nama, peran, panggilan, style — semua tetap.
+2. Blok "=== TENTANG LAWAN BICARA ===" → BOLEH ditambahkan info baru dari percakapan terbaru (fakta yang dia sebutkan, topik baru, perubahan mood). Jangan hapus info lama yang masih relevan.
+3. Blok "=== ATURAN PERAN — KRITIS, JANGAN DILANGGAR ===" → JANGAN diubah. Pertahankan apa adanya verbatim.
+
+Output: SELURUH profil dalam format yang sama persis (3 blok dengan header ===), tanpa komentar tambahan.`;
+
+  const model = await getChatModelForNumber(waNumber);
+  const res = await model.invoke([new HumanMessage(prompt)]);
+  const content =
+    typeof res.content === "string" ? res.content : JSON.stringify(res.content);
+  return content.trim();
+}
+
+async function summarizeLegacy(
   oldSummary: string,
   messages: RecentMessage[],
   waNumber: string,
