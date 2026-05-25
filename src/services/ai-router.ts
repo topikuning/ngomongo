@@ -3,6 +3,7 @@ import { HumanMessage } from "@langchain/core/messages";
 import { prisma } from "../lib/prisma.js";
 import { buildChatModel, type ProviderType } from "../lib/langchain.js";
 import { normalizeNumber } from "./whitelist.js";
+import { getPrompt } from "./prompt-store.js";
 
 export interface ProviderRow {
   id: number;
@@ -83,9 +84,8 @@ export async function testProvider(p: ProviderRow): Promise<ProviderTestResult> 
   const start = Date.now();
   try {
     const model = modelFor(p);
-    const res = await model.invoke([
-      new HumanMessage("Balas hanya dengan satu kata: PONG. Jangan tambahkan teks lain."),
-    ]);
+    const pingPrompt = await getPrompt("health.ping");
+    const res = await model.invoke([new HumanMessage(pingPrompt)]);
     const text =
       typeof res.content === "string" ? res.content : JSON.stringify(res.content);
     const trimmed = text.trim();

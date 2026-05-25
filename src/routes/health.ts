@@ -4,6 +4,7 @@ import { prisma } from "../lib/prisma.js";
 import { redis } from "../lib/redis.js";
 import { getDefaultProvider, getDefaultChatModel } from "../services/ai-router.js";
 import { pingWahaSession } from "../services/waha-client.js";
+import { getPrompt } from "../services/prompt-store.js";
 
 interface CheckResult {
   service: string;
@@ -62,11 +63,8 @@ async function checkAi(): Promise<CheckResult> {
   try {
     const provider = await getDefaultProvider();
     const model = await getDefaultChatModel();
-    const res = await model.invoke([
-      new HumanMessage(
-        "Balas hanya dengan satu kata: PONG. Jangan tambahkan teks lain.",
-      ),
-    ]);
+    const pingPrompt = await getPrompt("health.ping");
+    const res = await model.invoke([new HumanMessage(pingPrompt)]);
     const reply =
       typeof res.content === "string"
         ? res.content

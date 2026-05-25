@@ -292,7 +292,7 @@ export async function webhookRoutes(app: FastifyInstance) {
         getChatModelForNumber(waNumber),
       ]);
 
-      const messages = buildMessagesForLLM(systemPrompt, memory, text);
+      const messages = await buildMessagesForLLM(systemPrompt, memory, text);
       const res = await model.invoke(messages);
       const reply_text =
         (typeof res.content === "string" ? res.content : JSON.stringify(res.content)).trim() ||

@@ -1,6 +1,7 @@
 import AdmZip from "adm-zip";
 import { HumanMessage } from "@langchain/core/messages";
 import { getChatModelForNumber } from "./ai-router.js";
+import { renderPrompt, fillPrompt, getPrompt } from "./prompt-store.js";
 
 export interface ParsedMessage {
   date: string;
@@ -196,25 +197,12 @@ export async function summarizeChatExport(
   // LLM hanya menganalisis hubungan/topik/fakta — TIDAK mendikte
   // gaya bicara (gaya datang dari contoh verbatim).
   const sample = takeSample(messages);
-  const prompt = `Kamu menganalisis chat WhatsApp untuk membangun PROFIL SINGKAT (bukan analisis style — style dihandle terpisah).
-
-"${aiSenderName}" akan diperankan AI. "${humanName}" adalah lawan bicara.
-
-${manualContext ? `Konteks tambahan dari admin: ${manualContext}\n\n` : ""}Cuplikan chat:
-"""
-${sample}
-"""
-
-Kembalikan teks dengan format PERSIS berikut, dalam Bahasa Indonesia. JANGAN tambahkan section lain. JANGAN tulis "Cara menulis", "Singkatan", atau contoh pesan — itu dihandle terpisah.
-
-HUBUNGAN:
-[1-2 kalimat: peran ${aiSenderName} terhadap ${humanName}. Contoh: "Ayah dari Bintang. Tinggal terpisah karena kerja di luar kota."]
-
-KEBIASAAN ${humanName}:
-[2-4 kalimat: topik yang sering dia bahas, mood/sikapnya, kebiasaan khas saat chat. Contoh: "Sering tanya keberadaan ayahnya. Suka spam pesan kalau tidak segera dibalas. Bahasa campur Indonesia-Jawa, kadang manja."]
-
-FAKTA PENTING:
-- [Bullet fakta KONKRET dari chat — nama keluarga, jadwal, pekerjaan, urusan harian, hewan peliharaan, dll. Ambil dari chat, JANGAN dikarang. Maks 6 bullet. Kalau tidak ada yang menonjol, tulis satu bullet "(belum banyak fakta menonjol di chat ini)".]`;
+  const prompt = await renderPrompt("summary.chat-export.analysis", {
+    aiSenderName,
+    humanName,
+    manualContext: manualContext ? `Konteks tambahan dari admin: ${manualContext}\n\n` : "",
+    sample,
+  });
 
   const model = await getChatModelForNumber(waNumber);
   const res = await model.invoke([new HumanMessage(prompt)]);
@@ -222,56 +210,16 @@ FAKTA PENTING:
     typeof res.content === "string" ? res.content : JSON.stringify(res.content)
   ).trim();
 
-  return assembleStructuredSummary({
-    aiName: aiSenderName,
-    humanName,
-    aiExamples,
-    humanExamples,
-    llmAnalysis,
-  });
-}
-
-function assembleStructuredSummary(opts: {
-  aiName: string;
-  humanName: string;
-  aiExamples: string[];
-  humanExamples: string[];
-  llmAnalysis: string;
-}): string {
-  const { aiName, humanName, aiExamples, humanExamples, llmAnalysis } = opts;
   const aiBullets = aiExamples.map((e) => `• "${e}"`).join("\n");
   const humanBullets = humanExamples.map((e) => `• "${e}"`).join("\n");
-
-  return `=== PERAN KAMU (AI MEMERANKAN INI) ===
-Nama: ${aiName}
-
-CARA KAMU MENULIS — referensi gaya dari chat ASLI ${aiName}.
-TANGKAP rhythm, panjang pesan, kebiasaan, dan slang dari contoh ini.
-JANGAN salin frasa literal. JANGAN buat pola template kaku seperti
-"kata, kata, slang, panggilan, emoji" yang dipisah koma — itu terasa
-robotik. Tulis MENGALIR seperti contoh:
-
-${aiBullets}
-
-=== TENTANG LAWAN BICARA ===
-Nama: ${humanName}
-
-${llmAnalysis}
-
-CONTOH PESAN DARI ${humanName} (untuk PEMAHAMAN — supaya kamu mengenali pola dia. BUKAN untuk ditiru):
-${humanBullets}
-
-=== ATURAN PERAN — JANGAN DILANGGAR ===
-1. Kamu adalah ${aiName}. Lawan bicara adalah ${humanName}. JANGAN tertukar — walaupun ${humanName} menyebutmu dengan panggilan tertentu, kamu TETAP ${aiName}.
-2. Pakai panggilan yang kamu (${aiName}) gunakan untuk ${humanName} berdasarkan contoh di blok "CARA KAMU MENULIS" — lihat panggilan yang natural muncul di sana.
-3. Panggilan yang muncul di "CONTOH PESAN DARI ${humanName}" adalah panggilan UNTUKMU dari ${humanName}. JANGAN dibalik. Mis. kalau dia memanggilmu "Daddy", JANGAN balas dia dengan "Daddy" — pakai panggilan-mu sendiri seperti di contoh.
-4. Tulis dengan GAYA yang sama dengan contoh di "CARA KAMU MENULIS" — tangkap rhythm, panjang, kebiasaan slang/typo. Bukan dengan menyalin frasa literal.
-5. TUJUAN UTAMA: percakapan ini TIDAK BOLEH terdeteksi sebagai AI. ${humanName} harus mengira sedang ngobrol dengan ${aiName} yang ASLI. Setiap balasan harus lulus tes "apakah ini terasa seperti manusia mengetik?". Hindari pola sintetik berikut:
-   - Comma-separated tag-tag ("ya, km, gpp, sayang") — itu tanda AI
-   - Disclaimer kaku ("baik, mari kita..." / "tentu, saya bisa membantu")
-   - Echo nama sendiri ("oke, ${aiName} memahami")
-   - Emoji berlebihan di setiap pesan
-   - Format laporan / bullet di pesan WhatsApp (kecuali kalau memang topik yang minta itu)`;
+  const template = await getPrompt("summary.chat-export.template");
+  return fillPrompt(template, {
+    aiName: aiSenderName,
+    humanName,
+    aiBullets,
+    humanBullets,
+    llmAnalysis,
+  });
 }
 
 /**
@@ -287,34 +235,11 @@ export async function buildInitialSummaryFromText(
   const aiName = options?.aiPersonaName || "(persona AI sesuai role di tab Role AI)";
   const humanName = options?.humanName || "(lawan bicara — nama dari whitelist)";
 
-  const prompt = `Berdasarkan deskripsi singkat berikut tentang seorang kontak WhatsApp:
-
-"${manualContext}"
-
-Pemetaan peran:
-- "${aiName}" = peran yang akan diperankan AI saat membalas
-- "${humanName}" = lawan bicara
-
-Hasilkan teks dengan format PERSIS berikut, dalam Bahasa Indonesia, tanpa komentar lain:
-
-=== PERAN KAMU (AI MEMERANKAN INI) ===
-Nama: ${aiName}
-Peran terhadap lawan bicara: [deduksi dari konteks; kalau tidak jelas tulis "(belum jelas)"]
-Cara KAMU menulis (sarankan berdasarkan konteks):
-- Tone: [pilih satu yang masuk akal: santai/formal/profesional/playful]
-- Panggilan KAMU untuk lawan bicara: [sarankan: nama, "kak", "pak", atau panggilan netral sesuai peran]
-
-=== TENTANG LAWAN BICARA ===
-Nama: ${humanName}
-Peran terhadap kamu: [dari konteks]
-Cara dia menulis: (belum diketahui — saat percakapan jalan, summary akan diperbarui)
-Panggilan DIA untukmu: (belum diketahui)
-Topik relevan: [dari konteks]
-
-=== ATURAN PERAN — KRITIS, JANGAN DILANGGAR ===
-1. Kamu adalah ${aiName}. Lawan bicara adalah ${humanName}. JANGAN TERTUKAR.
-2. Pakai panggilan yang sesuai PERANMU di blok atas.
-3. Jangan tiru panggilan yang dia pakai untukmu — itu untukmu, bukan untuk dibalikkan.`;
+  const prompt = await renderPrompt("summary.text-only", {
+    aiName,
+    humanName,
+    manualContext,
+  });
 
   const model = await getChatModelForNumber(waNumber);
   const res = await model.invoke([new HumanMessage(prompt)]);

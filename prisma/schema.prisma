@@ -72,6 +72,19 @@ model ConversationLog {
   @@map("conversation_logs")
 }
 
+model PromptTemplate {
+  id          Int      @id @default(autoincrement())
+  key         String   @unique
+  label       String
+  description String
+  content     String
+  isCustom    Boolean  @default(false) @map("is_custom")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@map("prompt_templates")
+}
+
 model MemorySnapshot {
   id           Int      @id @default(autoincrement())
   waNumber     String   @map("wa_number")

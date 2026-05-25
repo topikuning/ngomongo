@@ -197,6 +197,48 @@
   }
   button.btn-danger-solid:hover { filter: brightness(1.1); }
 
+  /* ===== Prompt templates ===== */
+  .prompt-list { display: flex; flex-direction: column; gap: 12px; }
+  .prompt-card {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px 18px;
+  }
+  .prompt-card .pc-head {
+    display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;
+    margin-bottom: 6px;
+  }
+  .prompt-card .pc-title { font-size: 15px; font-weight: 600; }
+  .prompt-card .pc-key { font-size: 11px; color: var(--muted); font-family: ui-monospace, Menlo, Consolas, monospace; margin-top: 2px; }
+  .prompt-card .pc-desc { font-size: 13px; color: var(--muted); line-height: 1.5; margin-bottom: 10px; }
+  .prompt-card .pc-vars { font-size: 11px; color: var(--muted); margin-bottom: 10px; font-family: ui-monospace, Menlo, Consolas, monospace; }
+  .prompt-card .pc-vars code {
+    background: var(--bg); padding: 1px 6px; border-radius: 4px;
+    border: 1px solid var(--border); margin-right: 4px;
+  }
+  .prompt-card .pc-content {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 12px;
+    font-family: ui-monospace, Menlo, Consolas, monospace;
+    font-size: 12px;
+    line-height: 1.55;
+    white-space: pre-wrap;
+    max-height: 180px;
+    overflow: auto;
+    word-break: break-word;
+    margin-bottom: 10px;
+  }
+  .prompt-card .pc-actions { display: flex; gap: 8px; align-items: center; }
+  .modal textarea.prompt-editor {
+    font-family: ui-monospace, Menlo, Consolas, monospace;
+    font-size: 13px;
+    line-height: 1.55;
+    min-height: 380px;
+  }
+
   /* ===== Sender picker (import riwayat chat) ===== */
   .sender-picker-intro {
     background: var(--panel-2); border: 1px solid var(--border);
@@ -318,6 +360,7 @@
     <button data-tab="roles">Role AI</button>
     <button data-tab="providers">AI Provider</button>
     <button data-tab="logs">Riwayat Chat</button>
+    <button data-tab="prompts">Prompt</button>
     <button data-tab="health">Tes Koneksi</button>
     <button data-tab="settings">Pengaturan</button>
   </nav>
@@ -406,6 +449,7 @@
             <option value="openai">openai</option>
             <option value="deepseek">deepseek</option>
             <option value="groq">groq</option>
+            <option value="mistral">mistral</option>
           </select>
         </div>
         <div><label>Model</label><input id="p-model" placeholder="gemini-2.0-flash" /></div>
@@ -455,6 +499,20 @@
     <div class="card">
       <h2>Percakapan</h2>
       <div id="lg-chat" class="chat-wrap"></div>
+    </div>
+  </section>
+
+  <!-- ================ PROMPTS ================ -->
+  <section data-section="prompts" hidden>
+    <div class="card">
+      <h2>Prompt Templates</h2>
+      <p class="muted" style="margin-top:-6px;font-size:14px;line-height:1.6">
+        Semua prompt yang bot kirim ke AI bisa diedit di sini — analisis summary, rolling summarize, runtime reminder, dan ping tes provider.
+        Pakai sintaks <code>&#123;nama_variabel&#125;</code> untuk placeholder yang akan diisi sistem.
+        Tombol <b>Reset ke default</b> mengembalikan prompt ke versi bawaan kode.
+        Cache prompt 30 detik — perubahan effect setelah jeda singkat.
+      </p>
+      <div id="prompt-list" class="prompt-list"></div>
     </div>
   </section>
 
@@ -525,6 +583,7 @@ function tab(name) {
   if (name === "roles") loadRoles();
   if (name === "providers") loadProviders();
   if (name === "logs") loadNumbersForLogs();
+  if (name === "prompts") loadPrompts();
   if (name === "health") { initHealthGrid(); loadWebhookLog(); }
   if (name === "settings") loadSettings();
 }
@@ -1293,6 +1352,96 @@ async function runAllHealth() {
     overallEl.textContent = "GAGAL MEMANGGIL ENDPOINT";
     toast(e.message, "err");
   }
+}
+
+// ===================== PROMPTS =====================
+async function loadPrompts() {
+  try {
+    const j = await api("/api/prompts");
+    const list = j.prompts || [];
+    const wrap = $("#prompt-list");
+    if (list.length === 0) {
+      wrap.innerHTML = '<div class="empty">Belum ada prompt terdaftar.</div>';
+      return;
+    }
+    wrap.innerHTML = list.map(renderPromptCard).join("");
+  } catch (e) { toast(e.message, "err"); }
+}
+
+function renderPromptCard(p) {
+  const varsHtml = p.variables.length === 0
+    ? '<span class="muted">(tidak ada variabel)</span>'
+    : p.variables.map(v => `<code>{${escapeHtml(v)}}</code>`).join("");
+  const customPill = p.isCustom
+    ? '<span class="pill warn" style="font-size:11px">DIEDIT ADMIN</span>'
+    : '<span class="pill" style="font-size:11px">default</span>';
+  return `<div class="prompt-card">
+    <div class="pc-head">
+      <div style="min-width:0;flex:1">
+        <div class="pc-title">${escapeHtml(p.label)}</div>
+        <div class="pc-key">${escapeHtml(p.key)}</div>
+      </div>
+      ${customPill}
+    </div>
+    <div class="pc-desc">${escapeHtml(p.description)}</div>
+    <div class="pc-vars">Variabel: ${varsHtml}</div>
+    <div class="pc-content">${escapeHtml(p.content)}</div>
+    <div class="pc-actions">
+      <button class="btn-ghost" onclick="editPrompt('${escapeAttr(p.key)}')">Edit</button>
+      ${p.isCustom ? `<button class="btn-ghost" onclick="resetPromptToDefault('${escapeAttr(p.key)}')">Reset ke default</button>` : ""}
+    </div>
+  </div>`;
+}
+
+function escapeAttr(s) { return String(s).replace(/'/g, "\\'"); }
+
+async function editPrompt(key) {
+  const j = await api("/api/prompts");
+  const p = (j.prompts || []).find(x => x.key === key);
+  if (!p) { toast("Prompt tidak ditemukan", "err"); return; }
+  const varsHint = p.variables.length === 0
+    ? "(tidak ada variabel — prompt fixed)"
+    : "Variabel tersedia: " + p.variables.map(v => `{${v}}`).join(", ");
+  const data = await showFormModal({
+    title: `Edit prompt · ${p.label}`,
+    wide: true,
+    fields: [
+      {
+        name: "content",
+        label: "Isi prompt",
+        type: "textarea",
+        rows: 18,
+        value: p.content,
+        hint: varsHint,
+      },
+    ],
+    submitLabel: "Simpan",
+  });
+  if (!data) return;
+  if (!data.content.trim()) { toast("Isi prompt tidak boleh kosong", "err"); return; }
+  try {
+    await api(`/api/prompts/${encodeURIComponent(key)}`, {
+      method: "PUT",
+      body: JSON.stringify({ content: data.content }),
+    });
+    toast("Prompt tersimpan");
+    loadPrompts();
+  } catch (e) { toast(e.message, "err"); }
+}
+
+async function resetPromptToDefault(key) {
+  const ok = await showConfirmModal({
+    title: "Reset prompt ke default?",
+    message: "Versi yang sudah diedit akan dihapus. Sistem kembali memakai default bawaan kode untuk prompt ini.",
+    confirmLabel: "Reset",
+    danger: false,
+  });
+  if (!ok) return;
+  try {
+    await api(`/api/prompts/${encodeURIComponent(key)}`, { method: "DELETE" });
+    toast("Direset ke default");
+    loadPrompts();
+  } catch (e) { toast(e.message, "err"); }
 }
 
 // ===================== WEBHOOK LOG =====================

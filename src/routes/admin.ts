@@ -4,6 +4,7 @@ import { invalidateProviderCache, testProvider } from "../services/ai-router.js"
 import { normalizeNumber } from "../services/whitelist.js";
 import { resetMemory } from "../services/memory.js";
 import { getWebhookLog, clearWebhookLog } from "../services/webhook-log.js";
+import { listPrompts, setPrompt, resetPrompt } from "../services/prompt-store.js";
 
 export async function adminRoutes(app: FastifyInstance) {
   // ============ AI PROVIDERS ============
@@ -25,8 +26,8 @@ export async function adminRoutes(app: FastifyInstance) {
     if (!nama || !provider || !model || !apiKey) {
       return reply.code(400).send({ error: "nama, provider, model, apiKey wajib diisi" });
     }
-    if (!["google", "openai", "deepseek", "groq"].includes(provider)) {
-      return reply.code(400).send({ error: "provider harus google|openai|deepseek|groq" });
+    if (!["google", "openai", "deepseek", "groq", "mistral"].includes(provider)) {
+      return reply.code(400).send({ error: "provider harus google|openai|deepseek|groq|mistral" });
     }
 
     // Kalau belum ada provider lain sama sekali, paksa provider pertama ini jadi default.
@@ -306,6 +307,36 @@ export async function adminRoutes(app: FastifyInstance) {
   app.delete("/api/webhook-log", async () => {
     clearWebhookLog();
     return { ok: true };
+  });
+
+  // ============ PROMPT TEMPLATES ============
+  app.get("/api/prompts", async () => {
+    return { prompts: await listPrompts() };
+  });
+
+  app.put<{
+    Params: { key: string };
+    Body: { content: string };
+  }>("/api/prompts/:key", async (req, reply) => {
+    const { content } = req.body || ({} as { content?: string });
+    if (typeof content !== "string" || content.trim().length === 0) {
+      return reply.code(400).send({ error: "content wajib diisi" });
+    }
+    try {
+      await setPrompt(req.params.key, content);
+      return { ok: true };
+    } catch (err) {
+      return reply.code(400).send({ error: (err as Error).message });
+    }
+  });
+
+  app.delete<{ Params: { key: string } }>("/api/prompts/:key", async (req, reply) => {
+    try {
+      const def = await resetPrompt(req.params.key);
+      return { ok: true, defaultContent: def };
+    } catch (err) {
+      return reply.code(400).send({ error: (err as Error).message });
+    }
   });
 
   // ============ PENGATURAN ============
