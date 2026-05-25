@@ -2,7 +2,7 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import { isWhitelisted, ensureUser, getEffectiveSystemPrompt, normalizeNumber } from "../services/whitelist.js";
 import { getMemory, appendAndMaybeSummarize, buildMessagesForLLM } from "../services/memory.js";
 import { getChatModelForNumber } from "../services/ai-router.js";
-import { sendText } from "../services/waha-client.js";
+import { sendText, resolveLidToPhone } from "../services/waha-client.js";
 import { recordWebhookEvent } from "../services/webhook-log.js";
 
 type AnyObj = Record<string, unknown>;
@@ -18,20 +18,31 @@ function isPersonalChat(jid: string): boolean {
 
 const PHONE_JID_RE = /^(\d{8,15})@(c\.us|s\.whatsapp\.net)$/;
 
-// Cari nomor telepon asli sender di payload WAHA. WhatsApp protocol
-// baru sering pakai @lid (Linked IDentifier) yang BUKAN nomor telepon —
-// angkanya sintetik dan tidak match whitelist user. Engine WAHA yang
-// berbeda menyimpan nomor asli di path yang berbeda:
+// Cari nomor telepon asli sender di PAYLOAD WAHA tanpa hit API.
 //
-//   - NOWEB (baileys-based, free CORE): payload._data.key.remoteJidAlt
-//     → "6281234757999@s.whatsapp.net"
-//   - WEBJS (WhatsApp Web protocol)   : payload._data.id.remote
-//     → "6281234757999@c.us"
+// WhatsApp protocol baru menggunakan @lid (Linked IDentifier) — angka
+// sintetik yang menyembunyikan nomor telepon di grup publik / scenario
+// privacy lain. Untuk matching ke whitelist user butuh nomor asli.
 //
-// Sengaja TIDAK pakai scan rekursif terhadap seluruh body, karena body
-// juga punya field `me` (nomor bot sendiri) yang akan salah-pilih
-// kalau di-scan tanpa konteks. Cari di path yang spesifik dulu,
-// fallback scan HANYA terhadap subtree `payload`.
+// WAHA belum menyediakan field uniform `pnJid` (lihat feature request
+// devlikeapro/waha#993). Untuk sekarang, sumber nomor asli yang
+// tersedia di payload tergantung engine:
+//
+//   - NOWEB (baileys, default WAHA CORE):
+//       payload._data.key.remoteJidAlt = "62xxx@s.whatsapp.net"
+//     Dikonfirmasi sebagai workaround standar oleh maintainer & user
+//     di issue devlikeapro/waha#1608 dan #2010.
+//
+//   - WEBJS (WhatsApp Web): payload._data.id.remote
+//
+// TIDAK pakai scan rekursif terhadap seluruh body, karena top-level
+// `me` berisi nomor BOT sendiri ("me.id":"<botnumber>@c.us") yang
+// akan salah-pilih kalau di-scan tanpa konteks. Cari di path spesifik
+// dulu; fallback scan HANYA terhadap subtree `payload`.
+//
+// Field ini tidak selalu ada (mis. message.reaction events per
+// issue #2010). Untuk kasus itu kita pakai resolveLidToPhone() yang
+// hit endpoint resmi GET /api/{session}/lids/{lid}.
 function extractRealSenderPhoneJid(body: AnyObj): string | null {
   const payload = obj(body.payload ?? body.data ?? body);
   const data = obj(payload._data);
@@ -159,12 +170,21 @@ export async function webhookRoutes(app: FastifyInstance) {
       return reply.code(200).send({ ok: true });
     }
 
-    // Untuk whitelist matching, prioritaskan nomor telepon asli (@c.us /
-    // @s.whatsapp.net) yang sering tetap ada di payload meskipun field
-    // `from` utama berupa @lid. Kalau benar-benar cuma ada @lid, pakai
-    // digit @lid apa adanya — user bisa tambahkan ID itu ke whitelist
-    // sebagai fallback.
-    const canonicalJid = realPhoneJid || incomingJid;
+    // Resolusi nomor telepon untuk whitelist matching:
+    //   1) realPhoneJid dari payload (no network call) — paling cepat
+    //   2) Fallback: hit endpoint resmi WAHA GET /api/{session}/lids/{lid}
+    //      kalau `from` adalah @lid dan tidak ada di payload (cached 24h)
+    //   3) Last resort: pakai digit @lid apa adanya, beri petunjuk ke user
+    //      supaya bisa whitelist LID sebagai fallback
+    let canonicalJid = realPhoneJid || incomingJid;
+    let lookupSource = realPhoneJid ? "payload._data.key.remoteJidAlt" : "from";
+    if (!realPhoneJid && incomingJid.endsWith("@lid")) {
+      const resolved = await resolveLidToPhone(incomingJid);
+      if (resolved) {
+        canonicalJid = resolved;
+        lookupSource = "GET /api/{session}/lids/{lid}";
+      }
+    }
     const waNumber = normalizeNumber(canonicalJid);
 
     if (!waNumber) {
@@ -175,11 +195,12 @@ export async function webhookRoutes(app: FastifyInstance) {
     // Cek whitelist — jika tidak ada, diam total
     const allowed = await isWhitelisted(waNumber);
     if (!allowed) {
-      const hint = realPhoneJid
-        ? ` (dideteksi dari ${realPhoneJid}, asli=${incomingJid})`
-        : incomingJid.endsWith("@lid")
-        ? ` (hanya @lid yang dikirim WAHA, tidak ada nomor telepon asli di payload — tambahkan ID '${waNumber}' ke whitelist sebagai fallback)`
-        : "";
+      const hint =
+        canonicalJid !== incomingJid
+          ? ` (resolusi dari ${incomingJid} via ${lookupSource})`
+          : incomingJid.endsWith("@lid")
+          ? ` (resolusi LID gagal — payload tidak ada remoteJidAlt DAN GET /api/{session}/lids/{lid} tidak mengembalikan pn. Tambahkan ID '${waNumber}' ke whitelist sebagai fallback)`
+          : "";
       record(`skip: nomor ${waNumber} tidak ada di whitelist atau dinonaktifkan${hint}`);
       return reply.code(200).send({ ok: true });
     }
@@ -200,10 +221,10 @@ export async function webhookRoutes(app: FastifyInstance) {
         (typeof res.content === "string" ? res.content : JSON.stringify(res.content)).trim() ||
         "(maaf, saya tidak bisa membalas saat ini)";
 
-      // Untuk sendText, prioritaskan nomor telepon asli (sendText kalau
-      // dikirim ke @lid kadang gagal di WAHA).
-      const sendTarget = realPhoneJid ? normalizeNumber(realPhoneJid) : waNumber;
-      await sendText(sendTarget, reply_text);
+      // Untuk sendText, prioritaskan nomor telepon hasil resolusi
+      // (sendText kalau dikirim ke @lid kadang gagal di NOWEB; @c.us
+      // / @s.whatsapp.net selalu berhasil).
+      await sendText(waNumber, reply_text);
       await appendAndMaybeSummarize(waNumber, text, reply_text);
       record(`processed: balas ke ${waNumber} (${reply_text.length} char)`);
     } catch (err) {

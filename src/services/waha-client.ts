@@ -1,4 +1,5 @@
 import { request } from "undici";
+import { redis } from "../lib/redis.js";
 
 const WAHA_URL = (process.env.WAHA_URL || "http://localhost:3001").replace(/\/$/, "");
 const WAHA_API_KEY = process.env.WAHA_API_KEY || "";
@@ -69,6 +70,68 @@ export async function pingWahaSession(): Promise<WahaSessionInfo> {
   } catch (err) {
     return { ok: false, status: 0, url, error: (err as Error).message };
   }
+}
+
+/**
+ * Resolusi LID (Linked IDentifier) → nomor telepon via WAHA Contacts API.
+ *
+ * Dipakai sebagai FALLBACK ketika field webhook (payload._data.key.remoteJidAlt)
+ * tidak menyediakan nomor telepon — kasus yang didokumentasikan terjadi pada:
+ *   - message.reaction events (lihat issue #2010)
+ *   - WAHA versi lama / engine tertentu
+ *   - kontak yang belum pernah disinkronkan
+ *
+ * Endpoint resmi: GET /api/{session}/lids/{lid}
+ * Response       : { "lid": "...@lid", "pn": "...@c.us" } atau { "pn": null }
+ *
+ * Hasil di-cache di Redis 24 jam (rekomendasi komunitas di discussion #1858)
+ * supaya tidak hit WAHA API tiap pesan. Cache key juga mencatat "tidak ada
+ * mapping" (nilai string "null") supaya kita tidak retry terus-menerus.
+ *
+ * Docs / sources:
+ *   - https://github.com/devlikeapro/waha/issues/993   (feature request pnJid)
+ *   - https://github.com/devlikeapro/waha/issues/1608  (payload.from = @lid bug)
+ *   - https://github.com/devlikeapro/waha/issues/2010  (remoteJidAlt missing)
+ *   - https://github.com/devlikeapro/waha/discussions/1858 (community pattern)
+ */
+const LID_CACHE_PREFIX = "waha:lid:";
+const LID_CACHE_TTL_SECONDS = 24 * 3600;
+
+export async function resolveLidToPhone(lidJid: string): Promise<string | null> {
+  if (!lidJid.endsWith("@lid")) return null;
+
+  const cacheKey = LID_CACHE_PREFIX + lidJid;
+  try {
+    const cached = await redis.get(cacheKey);
+    if (cached !== null) return cached === "__null__" ? null : cached;
+  } catch {
+    // Redis down — lanjut tanpa cache
+  }
+
+  const url = `${WAHA_URL}/api/${encodeURIComponent(WAHA_SESSION)}/lids/${encodeURIComponent(lidJid)}`;
+  let pn: string | null = null;
+  try {
+    const res = await request(url, { method: "GET", headers: buildHeaders() });
+    const txt = await res.body.text();
+    if (res.statusCode === 200) {
+      try {
+        const j = JSON.parse(txt) as { pn?: string | null };
+        pn = j.pn || null;
+      } catch {
+        pn = null;
+      }
+    }
+    // 404 atau status lain: pn tetap null (di-cache sebagai null juga)
+  } catch {
+    return null; // network error — jangan cache, biar bisa retry kali berikutnya
+  }
+
+  try {
+    await redis.set(cacheKey, pn ?? "__null__", "EX", LID_CACHE_TTL_SECONDS);
+  } catch {
+    // ignore cache write error
+  }
+  return pn;
 }
 
 export async function startTyping(waNumber: string): Promise<void> {
