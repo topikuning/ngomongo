@@ -1,6 +1,6 @@
 import AdmZip from "adm-zip";
 import { HumanMessage } from "@langchain/core/messages";
-import { getActiveChatModel } from "./ai-router.js";
+import { getChatModelForNumber } from "./ai-router.js";
 
 export interface ParsedMessage {
   date: string;
@@ -76,6 +76,7 @@ function takeSample(messages: ParsedMessage[], maxChars = 16000): string {
 
 export async function summarizeChatExport(
   messages: ParsedMessage[],
+  waNumber: string,
   contactHint?: string,
   manualContext?: string,
 ): Promise<string> {
@@ -100,7 +101,7 @@ Tugasmu: hasilkan SATU teks dengan format PERSIS seperti di bawah ini, dalam Bah
 === STYLE BAHASA ===
 [Deskripsi konkret: formal/informal, singkatan & slang yang sering dipakai (contoh: "gw", "lo", "bgt"), panjang pesan tipikal, penggunaan emoji, tone (santai/serius/bercanda), contoh 2-3 frasa khas yang dia pakai]`;
 
-  const model = await getActiveChatModel();
+  const model = await getChatModelForNumber(waNumber);
   // Gemini menolak request yang hanya berisi SystemMessage (contents kosong).
   // Kirim sebagai HumanMessage agar kompatibel dgn semua provider.
   const res = await model.invoke([new HumanMessage(prompt)]);
@@ -108,7 +109,10 @@ Tugasmu: hasilkan SATU teks dengan format PERSIS seperti di bawah ini, dalam Bah
   return content.trim();
 }
 
-export async function buildInitialSummaryFromText(manualContext: string): Promise<string> {
+export async function buildInitialSummaryFromText(
+  manualContext: string,
+  waNumber: string,
+): Promise<string> {
   const prompt = `Berdasarkan deskripsi singkat berikut tentang seorang kontak WhatsApp:
 
 "${manualContext}"
@@ -121,7 +125,7 @@ Hasilkan teks dengan format PERSIS berikut, dalam Bahasa Indonesia, tanpa koment
 === STYLE BAHASA ===
 [Karena belum ada data percakapan, sarankan style bahasa default yang sesuai dengan konteks: formal/informal, tone yang cocok]`;
 
-  const model = await getActiveChatModel();
+  const model = await getChatModelForNumber(waNumber);
   // Gemini menolak request yang hanya berisi SystemMessage (contents kosong).
   // Kirim sebagai HumanMessage agar kompatibel dgn semua provider.
   const res = await model.invoke([new HumanMessage(prompt)]);

@@ -38,6 +38,7 @@ export async function uploadRoutes(app: FastifyInstance) {
       try {
         const summary = await summarizeChatExport(
           parsed,
+          entry.waNumber,
           entry.displayName || undefined,
           entry.initialContext || undefined,
         );
@@ -63,7 +64,7 @@ export async function uploadRoutes(app: FastifyInstance) {
         return reply.code(400).send({ error: "initialContext kosong" });
       }
       try {
-        const summary = await buildInitialSummaryFromText(entry.initialContext);
+        const summary = await buildInitialSummaryFromText(entry.initialContext, entry.waNumber);
         await setInitialSummary(entry.waNumber, summary);
         return { ok: true, summary };
       } catch (err) {

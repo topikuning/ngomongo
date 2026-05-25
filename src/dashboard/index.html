@@ -198,38 +198,47 @@
   button.btn-danger-solid:hover { filter: brightness(1.1); }
 
   /* ===== Health checks ===== */
-  .health-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
+  .health-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; }
   .health-card {
     background: var(--panel-2);
     border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 14px 16px;
-    display: flex; flex-direction: column; gap: 8px;
+    border-radius: 12px;
+    padding: 20px 22px;
+    display: flex; flex-direction: column; gap: 12px;
   }
-  .health-card .top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-  .health-card .name { font-weight: 600; font-size: 14px; }
-  .health-card .desc { color: var(--muted); font-size: 12px; }
+  .health-card .top { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .health-card .name { font-weight: 600; font-size: 16px; }
+  .health-card .desc { color: var(--muted); font-size: 13px; line-height: 1.45; }
   .health-card .msg {
-    font-size: 12px; color: var(--text); background: var(--bg);
-    border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px;
-    word-break: break-word; max-height: 110px; overflow: auto;
+    font-size: 13px; line-height: 1.5;
+    color: var(--text); background: var(--bg);
+    border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px;
+    word-break: break-word; max-height: 180px; overflow: auto;
     white-space: pre-wrap;
+    font-family: ui-monospace, Menlo, Consolas, monospace;
   }
-  .health-card .row-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-  .health-card .latency { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .health-card .row-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 2px; }
+  .health-card .row-foot .btn-ghost { padding: 9px 16px; font-size: 14px; }
+  .health-card .latency { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
   .status-dot {
-    display: inline-block; width: 8px; height: 8px; border-radius: 50%;
-    background: var(--muted); flex: 0 0 8px;
+    display: inline-block; width: 12px; height: 12px; border-radius: 50%;
+    background: var(--muted); flex: 0 0 12px;
   }
-  .status-dot.ok    { background: var(--accent); box-shadow: 0 0 0 3px rgba(37,211,102,0.15); }
-  .status-dot.error { background: var(--danger); box-shadow: 0 0 0 3px rgba(232,91,91,0.15); }
-  .status-dot.warn  { background: var(--warn);   box-shadow: 0 0 0 3px rgba(224,179,65,0.15); }
+  .status-dot.ok    { background: var(--accent); box-shadow: 0 0 0 4px rgba(37,211,102,0.18); }
+  .status-dot.error { background: var(--danger); box-shadow: 0 0 0 4px rgba(232,91,91,0.18); }
+  .status-dot.warn  { background: var(--warn);   box-shadow: 0 0 0 4px rgba(224,179,65,0.18); }
   .status-dot.loading { background: var(--muted); animation: pulse 1s infinite; }
   @keyframes pulse { 50% { opacity: 0.3; } }
-  .pill.health-ok    { background: rgba(37,211,102,0.15); color: var(--accent); }
-  .pill.health-error { background: rgba(232,91,91,0.15);  color: var(--danger); }
-  .pill.health-warn  { background: rgba(224,179,65,0.15); color: var(--warn); }
+  .pill.health-ok    { background: rgba(37,211,102,0.18); color: var(--accent); }
+  .pill.health-error { background: rgba(232,91,91,0.18);  color: var(--danger); }
+  .pill.health-warn  { background: rgba(224,179,65,0.18); color: var(--warn); }
   .pill.health-idle  { background: var(--panel); color: var(--muted); }
+  .pill.health-ok, .pill.health-error, .pill.health-warn, .pill.health-idle {
+    font-size: 12px; padding: 4px 12px; font-weight: 600; letter-spacing: 0.3px;
+  }
+  .health-overall {
+    font-size: 14px; padding: 6px 14px;
+  }
 </style>
 </head>
 <body>
@@ -263,6 +272,10 @@
           <label>Role AI</label>
           <select id="wl-role"><option value="">— gunakan default global —</option></select>
         </div>
+        <div>
+          <label>Provider AI</label>
+          <select id="wl-provider"><option value="">— gunakan default global —</option></select>
+        </div>
       </div>
       <div style="margin-top:10px">
         <label>Konteks Awal (teks manual)</label>
@@ -274,7 +287,8 @@
     <div class="card">
       <h2>Daftar Nomor Whitelist</h2>
       <p class="muted" style="margin-top:-6px;font-size:13px">
-        Ubah <b>Role</b> langsung dari dropdown di kolomnya — tersimpan otomatis per-nomor.
+        Ubah <b>Role</b> dan <b>Provider AI</b> per-nomor langsung dari dropdown di kolomnya — tersimpan otomatis.
+        Pilih "default global" untuk memakai role/provider yang ditandai default di tab Role AI / AI Provider.
         Untuk mengisi memori awal AI tentang lawan bicara, klik <b>Import Riwayat Chat</b>
         (file .txt/.zip hasil <i>Export chat</i> di WhatsApp).
       </p>
@@ -326,9 +340,9 @@
       <div class="row" style="margin-top:10px">
         <div class="grow"><label>API Key</label><input id="p-key" type="password" placeholder="sk-..." /></div>
         <div style="flex:0 0 120px"><label>Prioritas</label><input id="p-priority" type="number" value="0" /></div>
-        <div style="flex:0 0 180px;display:flex;align-items:end">
+        <div style="flex:0 0 200px;display:flex;align-items:end">
           <label style="display:flex;align-items:center;gap:6px;margin:0;color:var(--text)">
-            <input type="checkbox" id="p-active" style="width:auto" /> Aktifkan sekarang
+            <input type="checkbox" id="p-default" style="width:auto" /> Jadikan default global
           </label>
         </div>
       </div>
@@ -337,7 +351,10 @@
 
     <div class="card">
       <h2>Daftar Provider</h2>
-      <p class="muted" style="margin-top:-6px">Hanya satu provider yang aktif pada satu waktu. Klik <b>Aktifkan</b> untuk berganti.</p>
+      <p class="muted" style="margin-top:-6px">
+        Semua provider yang tercatat di sini bisa dipilih per-nomor (lihat tab Whitelist).
+        Satu provider ditandai <b>DEFAULT</b> — itu yang dipakai untuk nomor yang tidak override.
+      </p>
       <div id="p-table"></div>
     </div>
   </section>
@@ -368,15 +385,16 @@
   <section data-section="health" hidden>
     <div class="card">
       <h2>Tes Koneksi Service</h2>
-      <p class="muted" style="margin-top:-6px;font-size:13px">
+      <p class="muted" style="margin-top:-6px;font-size:14px;line-height:1.55">
         Memastikan semua dependency yang bot pakai sedang sehat:
-        database (PostgreSQL), Redis, provider AI yang aktif, dan WAHA (WhatsApp gateway).
-        Klik <b>Tes Semua</b>, atau <b>Tes</b> per service.
+        database (PostgreSQL), Redis, provider AI default, dan WAHA (WhatsApp gateway).
+        Klik <b>Tes Semua</b>, atau <b>Tes</b> per service. Latensi & pesan detail
+        ditampilkan di setiap kartu.
       </p>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;align-items:center">
-        <button class="btn" onclick="runAllHealth()">Tes Semua</button>
-        <span id="h-overall" class="pill health-idle">belum dites</span>
-        <span id="h-overall-when" class="muted" style="font-size:12px"></span>
+      <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:18px;align-items:center">
+        <button class="btn" style="padding:11px 22px;font-size:15px" onclick="runAllHealth()">Tes Semua</button>
+        <span id="h-overall" class="pill health-idle health-overall">belum dites</span>
+        <span id="h-overall-when" class="muted" style="font-size:13px"></span>
       </div>
       <div id="h-grid" class="health-grid"></div>
     </div>
@@ -554,10 +572,15 @@ function showConfirmModal({ title, message, confirmLabel = "Hapus", danger = tru
 }
 
 async function api(path, opts = {}) {
-  const res = await fetch(path, {
-    ...opts,
-    headers: { "Content-Type": "application/json", ...(opts.headers || {}) },
-  });
+  const headers = { ...(opts.headers || {}) };
+  // PENTING: hanya set Content-Type kalau request memang punya body. Kalau
+  // tidak, Fastify default JSON parser akan menolak request dengan
+  // FST_ERR_CTP_EMPTY_JSON_BODY (terlihat sebagai HTTP 400 Bad Request)
+  // untuk DELETE/POST tanpa body.
+  if (opts.body !== undefined && opts.body !== null) {
+    if (!headers["Content-Type"]) headers["Content-Type"] = "application/json";
+  }
+  const res = await fetch(path, { ...opts, headers });
   if (!res.ok) {
     let msg = res.statusText;
     try { const j = await res.json(); if (j.error) msg = j.error; } catch {}
@@ -568,23 +591,32 @@ async function api(path, opts = {}) {
 
 // ===================== WHITELIST =====================
 async function loadRolesIntoSelect() {
-  const roles = await api("/api/roles");
-  const sel = $("#wl-role");
-  sel.innerHTML = '<option value="">— gunakan default global —</option>' +
+  const [roles, providers] = await Promise.all([api("/api/roles"), api("/api/providers")]);
+  const rSel = $("#wl-role");
+  rSel.innerHTML = '<option value="">— gunakan default global —</option>' +
     roles.map(r => `<option value="${r.id}">${escapeHtml(r.nama)}${r.isDefault ? " (default)" : ""}</option>`).join("");
+  const pSel = $("#wl-provider");
+  pSel.innerHTML = '<option value="">— gunakan default global —</option>' +
+    providers.map(p => `<option value="${p.id}">${escapeHtml(p.nama)} · ${escapeHtml(p.provider)}/${escapeHtml(p.model)}${p.isDefault ? " (default)" : ""}</option>`).join("");
 }
 
 let ROLES_CACHE = [];
 
 async function loadWhitelist() {
   try {
-    ROLES_CACHE = await api("/api/roles");
+    [ROLES_CACHE, PROVIDERS_CACHE] = await Promise.all([
+      api("/api/roles"),
+      api("/api/providers"),
+    ]);
     const list = await api("/api/whitelist");
     const tbl = $("#wl-table");
     if (list.length === 0) { tbl.innerHTML = '<div class="empty">Belum ada nomor</div>'; return; }
     tbl.innerHTML = `<table>
       <thead><tr>
-        <th>Nomor</th><th>Nama</th><th style="min-width:180px">Role (per-nomor)</th><th>Konteks</th><th>Status</th><th>Initial Summary</th><th></th>
+        <th>Nomor</th><th>Nama</th>
+        <th style="min-width:180px">Role (per-nomor)</th>
+        <th style="min-width:180px">Provider AI (per-nomor)</th>
+        <th>Konteks</th><th>Status</th><th>Initial Summary</th><th></th>
       </tr></thead>
       <tbody>${list.map(rowWl).join("")}</tbody></table>`;
   } catch (e) { toast(e.message, "err"); }
@@ -599,6 +631,17 @@ function roleOptionsFor(currentRoleId) {
   return opts.join("");
 }
 
+function providerOptionsFor(currentProviderId) {
+  const def = PROVIDERS_CACHE.find(p => p.isDefault);
+  const defLabel = def
+    ? `— default global (${escapeHtml(def.nama)}) —`
+    : "— default global (belum ditandai!) —";
+  const opts = [`<option value="">${defLabel}</option>`]
+    .concat(PROVIDERS_CACHE.map(p =>
+      `<option value="${p.id}" ${p.id === currentProviderId ? "selected" : ""}>${escapeHtml(p.nama)} · ${escapeHtml(p.provider)}/${escapeHtml(p.model)}${p.isDefault ? " (default)" : ""}</option>`));
+  return opts.join("");
+}
+
 function rowWl(w) {
   return `<tr>
     <td><b>${escapeHtml(w.waNumber)}</b></td>
@@ -608,7 +651,12 @@ function rowWl(w) {
         ${roleOptionsFor(w.roleId)}
       </select>
     </td>
-    <td style="max-width:240px"><span class="muted">${escapeHtml((w.initialContext || "").slice(0, 80))}${(w.initialContext || "").length > 80 ? "…" : ""}</span></td>
+    <td>
+      <select onchange="setWlProvider(${w.id}, this.value)" style="font-size:12px;padding:6px 8px">
+        ${providerOptionsFor(w.providerId)}
+      </select>
+    </td>
+    <td style="max-width:220px"><span class="muted">${escapeHtml((w.initialContext || "").slice(0, 80))}${(w.initialContext || "").length > 80 ? "…" : ""}</span></td>
     <td>${w.isActive ? '<span class="pill on">aktif</span>' : '<span class="pill off">nonaktif</span>'}</td>
     <td>${w.initialSummaryReady ? '<span class="pill on">siap</span>' : '<span class="pill warn">belum</span>'}</td>
     <td><div class="actions">
@@ -626,7 +674,15 @@ async function setWlRole(id, value) {
   const roleId = value === "" ? null : Number(value);
   try {
     await api(`/api/whitelist/${id}`, { method: "PUT", body: JSON.stringify({ roleId }) });
-    toast(roleId ? "Role nomor diperbarui" : "Nomor dikembalikan ke default global");
+    toast(roleId ? "Role nomor diperbarui" : "Nomor dikembalikan ke role default global");
+  } catch (e) { toast(e.message, "err"); }
+}
+
+async function setWlProvider(id, value) {
+  const providerId = value === "" ? null : Number(value);
+  try {
+    await api(`/api/whitelist/${id}`, { method: "PUT", body: JSON.stringify({ providerId }) });
+    toast(providerId ? "Provider AI nomor diperbarui" : "Nomor dikembalikan ke provider default global");
   } catch (e) { toast(e.message, "err"); }
 }
 
@@ -637,10 +693,12 @@ async function addWhitelist() {
       displayName: $("#wl-name").value || null,
       initialContext: $("#wl-context").value || null,
       roleId: $("#wl-role").value ? Number($("#wl-role").value) : null,
+      providerId: $("#wl-provider").value ? Number($("#wl-provider").value) : null,
     };
     await api("/api/whitelist", { method: "POST", body: JSON.stringify(body) });
     toast("Nomor ditambahkan");
     $("#wl-number").value = ""; $("#wl-name").value = ""; $("#wl-context").value = "";
+    $("#wl-role").value = ""; $("#wl-provider").value = "";
     loadWhitelist();
   } catch (e) { toast(e.message, "err"); }
 }
@@ -808,9 +866,12 @@ async function delRole(id) {
 }
 
 // ===================== PROVIDERS =====================
+let PROVIDERS_CACHE = [];
+
 async function loadProviders() {
   try {
-    const list = await api("/api/providers");
+    PROVIDERS_CACHE = await api("/api/providers");
+    const list = PROVIDERS_CACHE;
     const tbl = $("#p-table");
     if (list.length === 0) { tbl.innerHTML = '<div class="empty">Belum ada provider</div>'; return; }
     tbl.innerHTML = `<table>
@@ -819,10 +880,10 @@ async function loadProviders() {
         <td><b>${escapeHtml(p.nama)}</b></td>
         <td>${escapeHtml(p.provider)}</td>
         <td>${escapeHtml(p.model)}</td>
-        <td>${p.isActive ? '<span class="pill on">AKTIF</span>' : '<span class="pill off">nonaktif</span>'}</td>
+        <td>${p.isDefault ? '<span class="pill on">DEFAULT</span>' : '<span class="pill">tersedia</span>'}</td>
         <td>${p.priority}</td>
         <td><div class="actions">
-          ${p.isActive ? "" : `<button class="btn-ghost" onclick="activate(${p.id})">Aktifkan</button>`}
+          ${p.isDefault ? "" : `<button class="btn-ghost" onclick="setDefault(${p.id})">Jadikan Default</button>`}
           <button class="btn-ghost" onclick="editProvider(${p.id})">Edit</button>
           <button class="btn-danger" onclick="delProvider(${p.id})">Hapus</button>
         </div></td>
@@ -838,18 +899,18 @@ async function addProvider() {
       model: $("#p-model").value,
       apiKey: $("#p-key").value,
       priority: Number($("#p-priority").value || 0),
-      isActive: $("#p-active").checked,
+      isDefault: $("#p-default").checked,
     };
     await api("/api/providers", { method: "POST", body: JSON.stringify(body) });
     toast("Provider tersimpan");
     ["#p-name","#p-model","#p-key"].forEach(s => $(s).value = "");
-    $("#p-active").checked = false;
+    $("#p-default").checked = false;
     loadProviders();
   } catch (e) { toast(e.message, "err"); }
 }
 
-async function activate(id) {
-  try { await api(`/api/providers/${id}/activate`, { method: "POST" }); toast("Provider aktif"); loadProviders(); }
+async function setDefault(id) {
+  try { await api(`/api/providers/${id}/set-default`, { method: "POST" }); toast("Provider dijadikan default"); loadProviders(); }
   catch (e) { toast(e.message, "err"); }
 }
 
@@ -876,13 +937,17 @@ async function editProvider(id) {
 }
 
 async function delProvider(id) {
+  const p = PROVIDERS_CACHE.find(x => x.id === id);
+  const isDef = !!p?.isDefault;
   const ok = await showConfirmModal({
     title: "Hapus provider",
-    message: "Provider ini akan dihapus permanen. Jika ini provider aktif, bot tidak akan bisa menjawab sampai kamu mengaktifkan provider lain.",
+    message: isDef
+      ? "Provider ini adalah DEFAULT. Setelah dihapus, sistem akan otomatis menjadikan provider lain (prioritas tertinggi) sebagai default. Nomor yang sebelumnya override ke provider ini akan kembali ke default."
+      : "Provider ini akan dihapus permanen. Nomor yang override ke provider ini akan otomatis kembali memakai default global.",
     confirmLabel: "Hapus",
   });
   if (!ok) return;
-  try { await api(`/api/providers/${id}`, { method: "DELETE" }); loadProviders(); toast("Provider dihapus"); }
+  try { await api(`/api/providers/${id}`, { method: "DELETE" }); loadProviders(); loadWhitelist(); toast("Provider dihapus"); }
   catch (e) { toast(e.message, "err"); }
 }
 
@@ -921,10 +986,10 @@ async function loadLogs() {
 
 // ===================== HEALTH CHECKS =====================
 const HEALTH_SERVICES = [
-  { id: "database", name: "PostgreSQL", desc: "Database (Prisma). Menyimpan whitelist, role, provider, log chat." },
-  { id: "redis",    name: "Redis",      desc: "Cache memori percakapan tiap nomor (recent + summary)." },
-  { id: "ai",       name: "AI Provider",desc: "Provider yang sedang aktif. Bot kirim prompt 'PONG' singkat untuk uji." },
-  { id: "waha",     name: "WAHA",       desc: "Gateway WhatsApp. Periksa session WORKING / butuh QR." },
+  { id: "database", name: "PostgreSQL",       desc: "Database (Prisma). Menyimpan whitelist, role, provider, log chat." },
+  { id: "redis",    name: "Redis",            desc: "Cache memori percakapan tiap nomor (recent + summary)." },
+  { id: "ai",       name: "AI Provider (default)", desc: "Provider yang ditandai default. Bot kirim prompt 'PONG' singkat untuk uji." },
+  { id: "waha",     name: "WAHA",             desc: "Gateway WhatsApp. Periksa session WORKING / butuh QR." },
 ];
 
 function initHealthGrid() {

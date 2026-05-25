@@ -2,7 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { HumanMessage } from "@langchain/core/messages";
 import { prisma } from "../lib/prisma.js";
 import { redis } from "../lib/redis.js";
-import { getActiveProvider, getActiveChatModel } from "../services/ai-router.js";
+import { getDefaultProvider, getDefaultChatModel } from "../services/ai-router.js";
 import { pingWahaSession } from "../services/waha-client.js";
 
 interface CheckResult {
@@ -60,8 +60,8 @@ async function checkRedis(): Promise<CheckResult> {
 async function checkAi(): Promise<CheckResult> {
   const start = process.hrtime.bigint();
   try {
-    const provider = await getActiveProvider();
-    const model = await getActiveChatModel();
+    const provider = await getDefaultProvider();
+    const model = await getDefaultChatModel();
     const res = await model.invoke([
       new HumanMessage(
         "Balas hanya dengan satu kata: PONG. Jangan tambahkan teks lain.",

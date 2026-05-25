@@ -17,16 +17,21 @@ export async function adminRoutes(app: FastifyInstance) {
       model: string;
       apiKey: string;
       priority?: number;
-      isActive?: boolean;
+      isDefault?: boolean;
     };
   }>("/api/providers", async (req, reply) => {
-    const { nama, provider, model, apiKey, priority, isActive } = req.body;
+    const { nama, provider, model, apiKey, priority, isDefault } = req.body;
     if (!nama || !provider || !model || !apiKey) {
       return reply.code(400).send({ error: "nama, provider, model, apiKey wajib diisi" });
     }
     if (!["google", "openai", "deepseek", "groq"].includes(provider)) {
       return reply.code(400).send({ error: "provider harus google|openai|deepseek|groq" });
     }
+
+    // Kalau belum ada provider lain sama sekali, paksa provider pertama ini jadi default.
+    const existingCount = await prisma.aiProvider.count();
+    const makeDefault = !!isDefault || existingCount === 0;
+
     const created = await prisma.aiProvider.create({
       data: {
         nama,
@@ -34,16 +39,16 @@ export async function adminRoutes(app: FastifyInstance) {
         model,
         apiKey,
         priority: priority ?? 0,
-        isActive: !!isActive,
+        isDefault: makeDefault,
       },
     });
-    if (created.isActive) {
+    if (makeDefault) {
       await prisma.aiProvider.updateMany({
         where: { id: { not: created.id } },
-        data: { isActive: false },
+        data: { isDefault: false },
       });
-      invalidateProviderCache();
     }
+    invalidateProviderCache();
     return created;
   });
 
@@ -55,9 +60,9 @@ export async function adminRoutes(app: FastifyInstance) {
       model: string;
       apiKey: string;
       priority: number;
-      isActive: boolean;
+      isDefault: boolean;
     }>;
-  }>("/api/providers/:id", async (req, reply) => {
+  }>("/api/providers/:id", async (req) => {
     const id = Number(req.params.id);
     const data: Record<string, unknown> = {};
     const b = req.body;
@@ -66,25 +71,27 @@ export async function adminRoutes(app: FastifyInstance) {
     if (b.model !== undefined) data.model = b.model;
     if (b.apiKey !== undefined && b.apiKey !== "") data.apiKey = b.apiKey;
     if (b.priority !== undefined) data.priority = b.priority;
-    if (b.isActive !== undefined) data.isActive = b.isActive;
+    if (b.isDefault !== undefined) data.isDefault = b.isDefault;
 
     const updated = await prisma.aiProvider.update({ where: { id }, data });
-    if (updated.isActive) {
+    if (updated.isDefault) {
       await prisma.aiProvider.updateMany({
         where: { id: { not: id } },
-        data: { isActive: false },
+        data: { isDefault: false },
       });
     }
     invalidateProviderCache();
     return updated;
   });
 
-  app.post<{ Params: { id: string } }>("/api/providers/:id/activate", async (req) => {
+  // Tandai provider ini sebagai default global. Semua provider lain
+  // otomatis kehilangan default-nya.
+  app.post<{ Params: { id: string } }>("/api/providers/:id/set-default", async (req) => {
     const id = Number(req.params.id);
-    await prisma.aiProvider.updateMany({ data: { isActive: false } });
+    await prisma.aiProvider.updateMany({ data: { isDefault: false } });
     const updated = await prisma.aiProvider.update({
       where: { id },
-      data: { isActive: true },
+      data: { isDefault: true },
     });
     invalidateProviderCache();
     return updated;
@@ -92,7 +99,20 @@ export async function adminRoutes(app: FastifyInstance) {
 
   app.delete<{ Params: { id: string } }>("/api/providers/:id", async (req) => {
     const id = Number(req.params.id);
+    const target = await prisma.aiProvider.findUnique({ where: { id } });
     await prisma.aiProvider.delete({ where: { id } });
+    // Kalau yang dihapus adalah default, promosikan provider lain (priority tertinggi → id terkecil).
+    if (target?.isDefault) {
+      const next = await prisma.aiProvider.findFirst({
+        orderBy: [{ priority: "desc" }, { id: "asc" }],
+      });
+      if (next) {
+        await prisma.aiProvider.update({
+          where: { id: next.id },
+          data: { isDefault: true },
+        });
+      }
+    }
     invalidateProviderCache();
     return { ok: true };
   });
@@ -146,7 +166,7 @@ export async function adminRoutes(app: FastifyInstance) {
   app.get("/api/whitelist", async () => {
     const list = await prisma.whitelistedNumber.findMany({
       orderBy: { createdAt: "desc" },
-      include: { role: true },
+      include: { role: true, provider: true },
     });
     return list;
   });
@@ -157,10 +177,11 @@ export async function adminRoutes(app: FastifyInstance) {
       displayName?: string;
       initialContext?: string;
       roleId?: number | null;
+      providerId?: number | null;
       isActive?: boolean;
     };
   }>("/api/whitelist", async (req, reply) => {
-    const { waNumber, displayName, initialContext, roleId, isActive } = req.body;
+    const { waNumber, displayName, initialContext, roleId, providerId, isActive } = req.body;
     const n = normalizeNumber(waNumber || "");
     if (!n) return reply.code(400).send({ error: "waNumber tidak valid" });
     const created = await prisma.whitelistedNumber.create({
@@ -169,6 +190,7 @@ export async function adminRoutes(app: FastifyInstance) {
         displayName: displayName || null,
         initialContext: initialContext || null,
         roleId: roleId ?? null,
+        providerId: providerId ?? null,
         isActive: isActive ?? true,
       },
     });
@@ -181,11 +203,21 @@ export async function adminRoutes(app: FastifyInstance) {
       displayName: string | null;
       initialContext: string | null;
       roleId: number | null;
+      providerId: number | null;
       isActive: boolean;
     }>;
   }>("/api/whitelist/:id", async (req) => {
     const id = Number(req.params.id);
-    return prisma.whitelistedNumber.update({ where: { id }, data: req.body });
+    // Whitelist seharusnya hanya boleh menerima field yang valid; lewatkan field
+    // lain yang tidak dikenal supaya Prisma tidak melempar error.
+    const data: Record<string, unknown> = {};
+    const b = req.body;
+    if (b.displayName !== undefined) data.displayName = b.displayName;
+    if (b.initialContext !== undefined) data.initialContext = b.initialContext;
+    if (b.roleId !== undefined) data.roleId = b.roleId;
+    if (b.providerId !== undefined) data.providerId = b.providerId;
+    if (b.isActive !== undefined) data.isActive = b.isActive;
+    return prisma.whitelistedNumber.update({ where: { id }, data });
   });
 
   app.delete<{ Params: { id: string } }>("/api/whitelist/:id", async (req) => {

@@ -1,39 +1,71 @@
 import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
 import { prisma } from "../lib/prisma.js";
 import { buildChatModel, type ProviderType } from "../lib/langchain.js";
+import { normalizeNumber } from "./whitelist.js";
 
-let cache: { model: BaseChatModel; key: string } | null = null;
+export interface ProviderRow {
+  id: number;
+  nama: string;
+  provider: string;
+  model: string;
+  apiKey: string;
+  isDefault: boolean;
+}
 
-function cacheKey(p: { id: number; provider: string; model: string; apiKey: string }): string {
+const modelCache = new Map<string, BaseChatModel>();
+
+function cacheKey(p: ProviderRow): string {
   return `${p.id}:${p.provider}:${p.model}:${p.apiKey.slice(0, 8)}`;
 }
 
-export async function getActiveProvider() {
-  const active = await prisma.aiProvider.findFirst({
-    where: { isActive: true },
-    orderBy: { priority: "desc" },
-  });
-  if (!active) {
-    throw new Error("Tidak ada AI provider aktif. Aktifkan satu provider via dashboard.");
+function modelFor(p: ProviderRow): BaseChatModel {
+  const key = cacheKey(p);
+  let m = modelCache.get(key);
+  if (!m) {
+    m = buildChatModel({
+      provider: p.provider as ProviderType,
+      model: p.model,
+      apiKey: p.apiKey,
+    });
+    modelCache.set(key, m);
   }
-  return active;
+  return m;
 }
 
-export async function getActiveChatModel(): Promise<BaseChatModel> {
-  const active = await getActiveProvider();
-  const key = cacheKey(active);
-  if (cache && cache.key === key) {
-    return cache.model;
-  }
-  const model = buildChatModel({
-    provider: active.provider as ProviderType,
-    model: active.model,
-    apiKey: active.apiKey,
+export async function getDefaultProvider(): Promise<ProviderRow> {
+  const def = await prisma.aiProvider.findFirst({
+    where: { isDefault: true },
+    orderBy: { priority: "desc" },
   });
-  cache = { model, key };
-  return model;
+  if (!def) {
+    throw new Error(
+      "Belum ada provider AI default. Tandai satu provider sebagai default di dashboard.",
+    );
+  }
+  return def;
+}
+
+export async function getDefaultChatModel(): Promise<BaseChatModel> {
+  return modelFor(await getDefaultProvider());
+}
+
+/** Pilih provider untuk nomor tertentu — pakai override per-nomor kalau ada, kalau tidak fallback ke default global. */
+export async function getProviderForNumber(waNumber: string): Promise<ProviderRow> {
+  const n = normalizeNumber(waNumber);
+  if (n) {
+    const entry = await prisma.whitelistedNumber.findUnique({
+      where: { waNumber: n },
+      include: { provider: true },
+    });
+    if (entry?.provider) return entry.provider;
+  }
+  return getDefaultProvider();
+}
+
+export async function getChatModelForNumber(waNumber: string): Promise<BaseChatModel> {
+  return modelFor(await getProviderForNumber(waNumber));
 }
 
 export function invalidateProviderCache() {
-  cache = null;
+  modelCache.clear();
 }

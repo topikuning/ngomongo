@@ -13,9 +13,11 @@ model AiProvider {
   provider   String
   model      String
   apiKey     String   @map("api_key")
-  isActive   Boolean  @default(false) @map("is_active")
+  isDefault  Boolean  @default(false) @map("is_default")
   priority   Int      @default(0)
   createdAt  DateTime @default(now()) @map("created_at")
+
+  whitelist  WhitelistedNumber[]
 
   @@map("ai_providers")
 }
@@ -40,9 +42,11 @@ model WhitelistedNumber {
   initialSummaryReady  Boolean  @default(false) @map("initial_summary_ready")
   isActive             Boolean  @default(true) @map("is_active")
   roleId               Int?     @map("role_id")
+  providerId           Int?     @map("provider_id")
   createdAt            DateTime @default(now()) @map("created_at")
 
-  role                 AiRole?  @relation(fields: [roleId], references: [id], onDelete: SetNull)
+  role                 AiRole?      @relation(fields: [roleId], references: [id], onDelete: SetNull)
+  provider             AiProvider?  @relation(fields: [providerId], references: [id], onDelete: SetNull)
 
   @@map("whitelisted_numbers")
 }

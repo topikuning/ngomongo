@@ -1,7 +1,7 @@
 import { HumanMessage, AIMessage, SystemMessage, type BaseMessage } from "@langchain/core/messages";
 import { prisma } from "../lib/prisma.js";
 import { redis, memoryKey } from "../lib/redis.js";
-import { getActiveChatModel } from "./ai-router.js";
+import { getChatModelForNumber } from "./ai-router.js";
 import { normalizeNumber } from "./whitelist.js";
 
 const SUMMARIZE_EVERY = Number(process.env.MEMORY_SUMMARIZE_EVERY || 15);
@@ -106,8 +106,9 @@ export function buildMessagesForLLM(
 async function summarize(
   oldSummary: string,
   messages: RecentMessage[],
+  waNumber: string,
 ): Promise<string> {
-  const model = await getActiveChatModel();
+  const model = await getChatModelForNumber(waNumber);
   const convo = messages
     .map((m) => `${m.role === "user" ? "User" : "AI"}: ${m.content}`)
     .join("\n");
@@ -159,7 +160,7 @@ export async function appendAndMaybeSummarize(
 
   if (memory.messages_since_summary >= SUMMARIZE_EVERY) {
     try {
-      const newSummary = await summarize(memory.summary, memory.recent_messages);
+      const newSummary = await summarize(memory.summary, memory.recent_messages, n);
       memory.summary = newSummary;
       memory.messages_since_summary = 0;
       await prisma.memorySnapshot.create({

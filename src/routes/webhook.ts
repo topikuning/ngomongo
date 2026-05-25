@@ -1,7 +1,7 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { isWhitelisted, ensureUser, getEffectiveSystemPrompt, normalizeNumber } from "../services/whitelist.js";
 import { getMemory, appendAndMaybeSummarize, buildMessagesForLLM } from "../services/memory.js";
-import { getActiveChatModel } from "../services/ai-router.js";
+import { getChatModelForNumber } from "../services/ai-router.js";
 import { sendText } from "../services/waha-client.js";
 
 interface WahaPayload {
@@ -61,7 +61,7 @@ export async function webhookRoutes(app: FastifyInstance) {
       const [systemPrompt, memory, model] = await Promise.all([
         getEffectiveSystemPrompt(waNumber),
         getMemory(waNumber),
-        getActiveChatModel(),
+        getChatModelForNumber(waNumber),
       ]);
 
       const messages = buildMessagesForLLM(systemPrompt, memory, text);
