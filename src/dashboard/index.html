@@ -385,7 +385,11 @@
       <p class="muted" style="margin-top:-6px">
         Semua provider yang tercatat di sini bisa dipilih per-nomor (lihat tab Whitelist).
         Satu provider ditandai <b>DEFAULT</b> — itu yang dipakai untuk nomor yang tidak override.
+        Tombol <b>Tes</b> mengirim prompt singkat ke provider tersebut tanpa mengubah default.
       </p>
+      <div style="display:flex;gap:10px;align-items:center;margin-bottom:12px">
+        <button class="btn" onclick="testAllProviders()">Tes Semua Provider</button>
+      </div>
       <div id="p-table"></div>
     </div>
   </section>
@@ -922,14 +926,16 @@ async function loadProviders() {
     const tbl = $("#p-table");
     if (list.length === 0) { tbl.innerHTML = '<div class="empty">Belum ada provider</div>'; return; }
     tbl.innerHTML = `<table>
-      <thead><tr><th>Nama</th><th>Provider</th><th>Model</th><th>Status</th><th>Prioritas</th><th></th></tr></thead>
-      <tbody>${list.map(p => `<tr>
+      <thead><tr><th>Nama</th><th>Provider</th><th>Model</th><th>Status</th><th>Prioritas</th><th>Hasil Tes</th><th></th></tr></thead>
+      <tbody>${list.map(p => `<tr data-pid="${p.id}">
         <td><b>${escapeHtml(p.nama)}</b></td>
         <td>${escapeHtml(p.provider)}</td>
         <td>${escapeHtml(p.model)}</td>
         <td>${p.isDefault ? '<span class="pill on">DEFAULT</span>' : '<span class="pill">tersedia</span>'}</td>
         <td>${p.priority}</td>
+        <td data-test-cell><span class="muted" style="font-size:12px">belum dites</span></td>
         <td><div class="actions">
+          <button class="btn-ghost" onclick="testProviderRow(${p.id})">Tes</button>
           ${p.isDefault ? "" : `<button class="btn-ghost" onclick="setDefault(${p.id})">Jadikan Default</button>`}
           <button class="btn-ghost" onclick="editProvider(${p.id})">Edit</button>
           <button class="btn-danger" onclick="delProvider(${p.id})">Hapus</button>
@@ -959,6 +965,36 @@ async function addProvider() {
 async function setDefault(id) {
   try { await api(`/api/providers/${id}/set-default`, { method: "POST" }); toast("Provider dijadikan default"); loadProviders(); }
   catch (e) { toast(e.message, "err"); }
+}
+
+function setTestCell(id, html) {
+  const cell = document.querySelector(`tr[data-pid="${id}"] [data-test-cell]`);
+  if (cell) cell.innerHTML = html;
+}
+
+async function testProviderRow(id) {
+  setTestCell(id, '<span class="muted" style="font-size:12px">menguji…</span>');
+  try {
+    const r = await api(`/api/providers/${id}/test`, { method: "POST" });
+    if (r.ok) {
+      setTestCell(id, `<span class="pill on" title="${escapeHtml(r.reply || "")}">OK · ${r.latencyMs} ms</span>`);
+    } else {
+      const errShort = (r.error || "error").slice(0, 60);
+      setTestCell(id, `<span class="pill off" title="${escapeHtml(r.error || "")}">GAGAL · ${r.latencyMs} ms</span>
+        <div class="muted" style="font-size:11px;margin-top:4px;max-width:260px;word-break:break-word">${escapeHtml(errShort)}${(r.error || "").length > 60 ? "…" : ""}</div>`);
+    }
+  } catch (e) {
+    setTestCell(id, `<span class="pill off">GAGAL</span>
+      <div class="muted" style="font-size:11px;margin-top:4px">${escapeHtml(e.message)}</div>`);
+  }
+}
+
+async function testAllProviders() {
+  if (!PROVIDERS_CACHE.length) { toast("Belum ada provider", "err"); return; }
+  // Set semua ke "menguji…" dulu, lalu jalankan paralel
+  PROVIDERS_CACHE.forEach(p => setTestCell(p.id, '<span class="muted" style="font-size:12px">menguji…</span>'));
+  await Promise.all(PROVIDERS_CACHE.map(p => testProviderRow(p.id)));
+  toast("Semua provider selesai dites");
 }
 
 async function editProvider(id) {

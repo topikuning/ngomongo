@@ -10,7 +10,9 @@ export interface WebhookLogEntry {
   remoteIp?: string;
   decision: string;
   extracted: {
+    event?: string | null;
     from: string | null;
+    realPhoneJid?: string | null;
     text: string;
     fromMe: boolean;
     notifyName?: string;

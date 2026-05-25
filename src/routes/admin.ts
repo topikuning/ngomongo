@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { prisma } from "../lib/prisma.js";
-import { invalidateProviderCache } from "../services/ai-router.js";
+import { invalidateProviderCache, testProvider } from "../services/ai-router.js";
 import { normalizeNumber } from "../services/whitelist.js";
 import { resetMemory } from "../services/memory.js";
 import { getWebhookLog, clearWebhookLog } from "../services/webhook-log.js";
@@ -83,6 +83,22 @@ export async function adminRoutes(app: FastifyInstance) {
     }
     invalidateProviderCache();
     return updated;
+  });
+
+  // Tes satu provider tertentu (kirim prompt singkat "PONG"). Tidak
+  // mengubah default. Bisa dipanggil per provider dari tab AI Provider.
+  app.post<{ Params: { id: string } }>("/api/providers/:id/test", async (req, reply) => {
+    const id = Number(req.params.id);
+    const p = await prisma.aiProvider.findUnique({ where: { id } });
+    if (!p) return reply.code(404).send({ error: "Provider tidak ditemukan" });
+    const result = await testProvider(p);
+    return {
+      ...result,
+      providerId: p.id,
+      nama: p.nama,
+      provider: p.provider,
+      model: p.model,
+    };
   });
 
   // Tandai provider ini sebagai default global. Semua provider lain
