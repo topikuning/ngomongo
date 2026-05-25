@@ -148,6 +148,54 @@
   .msg.user { background: #0b3b2e; margin-left: auto; }
   .msg.assistant { background: #2b2f37; }
   .msg .when { font-size: 10px; color: var(--muted); margin-top: 4px; }
+
+  /* ===== Modal ===== */
+  .modal-overlay {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.55);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 1000;
+    padding: 20px;
+    animation: fadeIn .12s ease-out;
+  }
+  @keyframes fadeIn { from { opacity: 0 } to { opacity: 1 } }
+  .modal {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    width: 100%; max-width: 560px;
+    max-height: 90vh;
+    display: flex; flex-direction: column;
+    box-shadow: 0 20px 50px rgba(0,0,0,0.6);
+  }
+  .modal.wide { max-width: 760px; }
+  .modal-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--border);
+  }
+  .modal-header h3 { margin: 0; font-size: 15px; font-weight: 600; }
+  .modal-close {
+    background: transparent; border: none; color: var(--muted);
+    font-size: 22px; line-height: 1; cursor: pointer; padding: 0 4px;
+  }
+  .modal-close:hover { color: var(--text); }
+  .modal-body { padding: 18px; overflow: auto; }
+  .modal-field { margin-bottom: 14px; }
+  .modal-field:last-child { margin-bottom: 0; }
+  .modal-field label { font-size: 12px; color: var(--muted); margin-bottom: 5px; display: block; }
+  .modal-hint { font-size: 11px; color: var(--muted); margin-top: 4px; }
+  .modal-content { font-size: 14px; line-height: 1.55; white-space: pre-wrap; }
+  .modal-actions {
+    display: flex; justify-content: flex-end; gap: 8px;
+    padding: 14px 18px;
+    border-top: 1px solid var(--border);
+  }
+  button.btn-danger-solid {
+    background: var(--danger); border: none; color: white;
+    padding: 9px 16px; border-radius: 6px; cursor: pointer; font-weight: 600;
+  }
+  button.btn-danger-solid:hover { filter: brightness(1.1); }
 </style>
 </head>
 <body>
@@ -300,6 +348,7 @@
 </main>
 
 <div id="toast" class="toast"></div>
+<div id="modal-root"></div>
 
 <script>
 const $ = (s) => document.querySelector(s);
@@ -321,6 +370,133 @@ function toast(msg, kind = "ok") {
   t.textContent = msg;
   t.className = "toast show " + kind;
   setTimeout(() => t.className = "toast " + kind, 3000);
+}
+
+// ===================== MODAL =====================
+function _openModal(html, { wide = false } = {}) {
+  const root = $("#modal-root");
+  root.innerHTML = `<div class="modal-overlay"><div class="modal${wide ? " wide" : ""}">${html}</div></div>`;
+  const overlay = root.querySelector(".modal-overlay");
+  return { root, overlay };
+}
+
+function _closeModal(escHandler) {
+  $("#modal-root").innerHTML = "";
+  if (escHandler) document.removeEventListener("keydown", escHandler);
+}
+
+function _bindClose(overlay, onClose) {
+  const escHandler = (e) => { if (e.key === "Escape") onClose(); };
+  document.addEventListener("keydown", escHandler);
+  overlay.querySelector(".modal-close")?.addEventListener("click", onClose);
+  overlay.addEventListener("click", (e) => { if (e.target === overlay) onClose(); });
+  return escHandler;
+}
+
+function showFormModal({ title, fields, submitLabel = "Simpan", wide = false }) {
+  return new Promise((resolve) => {
+    const fieldsHtml = fields.map((f, i) => {
+      const val = escapeHtml(f.value ?? "");
+      const placeholder = escapeHtml(f.placeholder || "");
+      let control;
+      if (f.type === "textarea") {
+        control = `<textarea name="f${i}" rows="${f.rows || 5}" placeholder="${placeholder}">${val}</textarea>`;
+      } else if (f.type === "password") {
+        control = `<input name="f${i}" type="password" placeholder="${placeholder}" value="${val}" />`;
+      } else if (f.type === "select") {
+        const opts = (f.options || []).map(o =>
+          `<option value="${escapeHtml(o.value)}" ${String(o.value) === String(f.value) ? "selected" : ""}>${escapeHtml(o.label)}</option>`
+        ).join("");
+        control = `<select name="f${i}">${opts}</select>`;
+      } else {
+        control = `<input name="f${i}" type="text" placeholder="${placeholder}" value="${val}" />`;
+      }
+      return `<div class="modal-field">
+        <label>${escapeHtml(f.label)}</label>
+        ${control}
+        ${f.hint ? `<div class="modal-hint">${escapeHtml(f.hint)}</div>` : ""}
+      </div>`;
+    }).join("");
+
+    const { overlay } = _openModal(`
+      <div class="modal-header">
+        <h3>${escapeHtml(title)}</h3>
+        <button type="button" class="modal-close" aria-label="Tutup">&times;</button>
+      </div>
+      <form class="modal-body">${fieldsHtml}</form>
+      <div class="modal-actions">
+        <button type="button" class="btn-ghost" data-modal-cancel>Batal</button>
+        <button type="button" class="btn" data-modal-submit>${escapeHtml(submitLabel)}</button>
+      </div>
+    `, { wide });
+
+    const form = overlay.querySelector("form");
+    let esc;
+    const close = (val) => { _closeModal(esc); resolve(val); };
+    esc = _bindClose(overlay, () => close(null));
+    overlay.querySelector("[data-modal-cancel]").addEventListener("click", () => close(null));
+
+    const submit = () => {
+      const data = {};
+      fields.forEach((f, i) => { data[f.name] = form.elements[`f${i}`].value; });
+      close(data);
+    };
+    overlay.querySelector("[data-modal-submit]").addEventListener("click", submit);
+    form.addEventListener("submit", (e) => { e.preventDefault(); submit(); });
+    form.addEventListener("keydown", (e) => {
+      // Ctrl/Cmd+Enter submit dari textarea
+      if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); submit(); }
+      // Enter biasa pada input (bukan textarea) → submit
+      else if (e.key === "Enter" && e.target.tagName === "INPUT") { e.preventDefault(); submit(); }
+    });
+
+    setTimeout(() => overlay.querySelector("input, textarea, select")?.focus(), 30);
+  });
+}
+
+function showInfoModal({ title, content, isCode = false, wide = false }) {
+  return new Promise((resolve) => {
+    const body = isCode
+      ? `<pre>${escapeHtml(content || "")}</pre>`
+      : `<div class="modal-content">${escapeHtml(content || "")}</div>`;
+    const { overlay } = _openModal(`
+      <div class="modal-header">
+        <h3>${escapeHtml(title)}</h3>
+        <button type="button" class="modal-close" aria-label="Tutup">&times;</button>
+      </div>
+      <div class="modal-body">${body}</div>
+      <div class="modal-actions">
+        <button type="button" class="btn" data-modal-ok>Tutup</button>
+      </div>
+    `, { wide });
+    let esc;
+    const close = () => { _closeModal(esc); resolve(); };
+    esc = _bindClose(overlay, close);
+    overlay.querySelector("[data-modal-ok]").addEventListener("click", close);
+    setTimeout(() => overlay.querySelector("[data-modal-ok]").focus(), 30);
+  });
+}
+
+function showConfirmModal({ title, message, confirmLabel = "Hapus", danger = true }) {
+  return new Promise((resolve) => {
+    const { overlay } = _openModal(`
+      <div class="modal-header">
+        <h3>${escapeHtml(title)}</h3>
+        <button type="button" class="modal-close" aria-label="Tutup">&times;</button>
+      </div>
+      <div class="modal-body"><div class="modal-content">${escapeHtml(message)}</div></div>
+      <div class="modal-actions">
+        <button type="button" class="btn-ghost" data-modal-cancel>Batal</button>
+        <button type="button" class="${danger ? "btn-danger-solid" : "btn"}" data-modal-confirm>${escapeHtml(confirmLabel)}</button>
+      </div>
+    `);
+    let esc;
+    const close = (val) => { _closeModal(esc); resolve(val); };
+    esc = _bindClose(overlay, () => close(false));
+    overlay.querySelector("[data-modal-cancel]").addEventListener("click", () => close(false));
+    overlay.querySelector("[data-modal-confirm]").addEventListener("click", () => close(true));
+    setTimeout(() => overlay.querySelector("[data-modal-confirm]").focus(), 30);
+  });
 }
 
 async function api(path, opts = {}) {
@@ -416,8 +592,13 @@ async function addWhitelist() {
 }
 
 async function delWl(id) {
-  if (!confirm("Hapus nomor ini dari whitelist?")) return;
-  try { await api(`/api/whitelist/${id}`, { method: "DELETE" }); loadWhitelist(); }
+  const ok = await showConfirmModal({
+    title: "Hapus nomor whitelist",
+    message: "Nomor ini akan dihapus beserta relasinya. Riwayat chat di tabel ChatLog tidak ikut terhapus.",
+    confirmLabel: "Hapus",
+  });
+  if (!ok) return;
+  try { await api(`/api/whitelist/${id}`, { method: "DELETE" }); loadWhitelist(); toast("Nomor dihapus"); }
   catch (e) { toast(e.message, "err"); }
 }
 
@@ -430,12 +611,22 @@ async function editWl(id) {
   const list = await api("/api/whitelist");
   const w = list.find(x => x.id === id);
   if (!w) return;
-  const displayName = prompt("Nama tampilan:", w.displayName || "") ?? w.displayName;
-  const initialContext = prompt("Konteks awal (teks bebas):", w.initialContext || "") ?? w.initialContext;
+  const data = await showFormModal({
+    title: `Edit nomor ${w.waNumber}`,
+    fields: [
+      { name: "displayName", label: "Nama tampilan", value: w.displayName || "", placeholder: "Budi" },
+      { name: "initialContext", label: "Konteks awal (teks bebas)", type: "textarea", rows: 6,
+        value: w.initialContext || "",
+        placeholder: "Budi, pelanggan VIP sejak 2022, sering tanya status pengiriman",
+        hint: "Setelah disimpan, gunakan tombol 'Summary dari Teks Konteks' di baris untuk regenerasi initial summary." },
+    ],
+    submitLabel: "Simpan",
+  });
+  if (!data) return;
   try {
     await api(`/api/whitelist/${id}`, {
       method: "PUT",
-      body: JSON.stringify({ displayName, initialContext }),
+      body: JSON.stringify({ displayName: data.displayName, initialContext: data.initialContext }),
     });
     toast("Diperbarui");
     loadWhitelist();
@@ -457,26 +648,40 @@ function uploadWl(id) {
       const j = await res.json();
       toast(`Selesai. ${j.messageCount} pesan diparse.`);
       loadWhitelist();
-      alert("Initial Summary tersimpan:\n\n" + j.summary);
+      await showInfoModal({
+        title: `Initial Summary tersimpan (${j.messageCount} pesan)`,
+        content: j.summary,
+        isCode: true,
+        wide: true,
+      });
     } catch (e) { toast(e.message, "err"); }
   };
   inp.click();
 }
 
 async function buildFromText(id) {
-  if (!confirm("Bangun initial summary dari teks konteks manual?")) return;
   try {
     const r = await api(`/api/whitelist/${id}/build-summary-from-text`, { method: "POST" });
     toast("Summary dibuat");
     loadWhitelist();
-    alert("Initial Summary:\n\n" + r.summary);
+    await showInfoModal({
+      title: "Initial Summary (dari konteks teks)",
+      content: r.summary,
+      isCode: true,
+      wide: true,
+    });
   } catch (e) { toast(e.message, "err"); }
 }
 
 async function viewSummary(waNumber) {
   try {
     const s = await api(`/api/initial-summary/${waNumber}`);
-    alert(s.summary || "Belum ada initial summary untuk nomor ini.");
+    await showInfoModal({
+      title: `Initial Summary · ${waNumber}`,
+      content: s.summary || "Belum ada initial summary untuk nomor ini.",
+      isCode: !!s.summary,
+      wide: true,
+    });
   } catch (e) { toast(e.message, "err"); }
 }
 
@@ -517,10 +722,17 @@ async function addRole() {
 async function editRole(id) {
   const list = await api("/api/roles");
   const r = list.find(x => x.id === id); if (!r) return;
-  const nama = prompt("Nama role:", r.nama) ?? r.nama;
-  const systemPrompt = prompt("System prompt:", r.systemPrompt) ?? r.systemPrompt;
+  const data = await showFormModal({
+    title: `Edit role · ${r.nama}`,
+    wide: true,
+    fields: [
+      { name: "nama", label: "Nama role", value: r.nama },
+      { name: "systemPrompt", label: "System prompt", type: "textarea", rows: 12, value: r.systemPrompt },
+    ],
+  });
+  if (!data) return;
   try {
-    await api(`/api/roles/${id}`, { method: "PUT", body: JSON.stringify({ nama, systemPrompt }) });
+    await api(`/api/roles/${id}`, { method: "PUT", body: JSON.stringify({ nama: data.nama, systemPrompt: data.systemPrompt }) });
     toast("Role diperbarui"); loadRoles();
   } catch (e) { toast(e.message, "err"); }
 }
@@ -531,8 +743,13 @@ async function setDefaultRole(id) {
 }
 
 async function delRole(id) {
-  if (!confirm("Hapus role ini?")) return;
-  try { await api(`/api/roles/${id}`, { method: "DELETE" }); loadRoles(); }
+  const ok = await showConfirmModal({
+    title: "Hapus role",
+    message: "Nomor whitelist yang masih memakai role ini akan otomatis dikembalikan ke default global.",
+    confirmLabel: "Hapus",
+  });
+  if (!ok) return;
+  try { await api(`/api/roles/${id}`, { method: "DELETE" }); loadRoles(); toast("Role dihapus"); }
   catch (e) { toast(e.message, "err"); }
 }
 
@@ -585,21 +802,33 @@ async function activate(id) {
 async function editProvider(id) {
   const list = await api("/api/providers");
   const p = list.find(x => x.id === id); if (!p) return;
-  const nama = prompt("Nama:", p.nama) ?? p.nama;
-  const model = prompt("Model:", p.model) ?? p.model;
-  const apiKey = prompt("API Key (kosongkan untuk tidak mengubah):", "");
+  const data = await showFormModal({
+    title: `Edit provider · ${p.nama}`,
+    fields: [
+      { name: "nama", label: "Nama", value: p.nama },
+      { name: "model", label: "Model", value: p.model, placeholder: "gemini-2.0-flash" },
+      { name: "priority", label: "Prioritas", value: String(p.priority ?? 0) },
+      { name: "apiKey", label: "API Key (baru)", type: "password", placeholder: "Kosongkan untuk tidak mengubah",
+        hint: "Demi keamanan, key lama tidak ditampilkan. Isi hanya jika ingin menggantinya." },
+    ],
+  });
+  if (!data) return;
+  const body = { nama: data.nama, model: data.model, priority: Number(data.priority) || 0 };
+  if (data.apiKey) body.apiKey = data.apiKey;
   try {
-    await api(`/api/providers/${id}`, {
-      method: "PUT",
-      body: JSON.stringify({ nama, model, ...(apiKey ? { apiKey } : {}) }),
-    });
+    await api(`/api/providers/${id}`, { method: "PUT", body: JSON.stringify(body) });
     toast("Diperbarui"); loadProviders();
   } catch (e) { toast(e.message, "err"); }
 }
 
 async function delProvider(id) {
-  if (!confirm("Hapus provider ini?")) return;
-  try { await api(`/api/providers/${id}`, { method: "DELETE" }); loadProviders(); }
+  const ok = await showConfirmModal({
+    title: "Hapus provider",
+    message: "Provider ini akan dihapus permanen. Jika ini provider aktif, bot tidak akan bisa menjawab sampai kamu mengaktifkan provider lain.",
+    confirmLabel: "Hapus",
+  });
+  if (!ok) return;
+  try { await api(`/api/providers/${id}`, { method: "DELETE" }); loadProviders(); toast("Provider dihapus"); }
   catch (e) { toast(e.message, "err"); }
 }
 
