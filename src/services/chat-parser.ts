@@ -1,5 +1,5 @@
 import AdmZip from "adm-zip";
-import { SystemMessage } from "@langchain/core/messages";
+import { HumanMessage } from "@langchain/core/messages";
 import { getActiveChatModel } from "./ai-router.js";
 
 export interface ParsedMessage {
@@ -101,7 +101,9 @@ Tugasmu: hasilkan SATU teks dengan format PERSIS seperti di bawah ini, dalam Bah
 [Deskripsi konkret: formal/informal, singkatan & slang yang sering dipakai (contoh: "gw", "lo", "bgt"), panjang pesan tipikal, penggunaan emoji, tone (santai/serius/bercanda), contoh 2-3 frasa khas yang dia pakai]`;
 
   const model = await getActiveChatModel();
-  const res = await model.invoke([new SystemMessage(prompt)]);
+  // Gemini menolak request yang hanya berisi SystemMessage (contents kosong).
+  // Kirim sebagai HumanMessage agar kompatibel dgn semua provider.
+  const res = await model.invoke([new HumanMessage(prompt)]);
   const content = typeof res.content === "string" ? res.content : JSON.stringify(res.content);
   return content.trim();
 }
@@ -120,7 +122,9 @@ Hasilkan teks dengan format PERSIS berikut, dalam Bahasa Indonesia, tanpa koment
 [Karena belum ada data percakapan, sarankan style bahasa default yang sesuai dengan konteks: formal/informal, tone yang cocok]`;
 
   const model = await getActiveChatModel();
-  const res = await model.invoke([new SystemMessage(prompt)]);
+  // Gemini menolak request yang hanya berisi SystemMessage (contents kosong).
+  // Kirim sebagai HumanMessage agar kompatibel dgn semua provider.
+  const res = await model.invoke([new HumanMessage(prompt)]);
   const content = typeof res.content === "string" ? res.content : JSON.stringify(res.content);
   return content.trim();
 }

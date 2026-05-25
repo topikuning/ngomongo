@@ -126,7 +126,9 @@ Tugasmu: tulis ulang ringkasan dalam format BERIKUT (pertahankan blok jika sudah
 === STYLE BAHASA ===
 [deskripsi cara dia menulis: formal/informal, singkatan yang sering dipakai, panjang pesan tipikal, penggunaan emoji, tone, contoh frasa khas]`;
 
-  const res = await model.invoke([new SystemMessage(prompt)]);
+  // Gemini menolak request yang hanya berisi SystemMessage (contents kosong).
+  // Kirim sebagai HumanMessage agar kompatibel dgn semua provider.
+  const res = await model.invoke([new HumanMessage(prompt)]);
   const content = typeof res.content === "string" ? res.content : JSON.stringify(res.content);
   return content.trim();
 }
