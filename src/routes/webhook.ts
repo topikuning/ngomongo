@@ -16,19 +16,45 @@ function isPersonalChat(jid: string): boolean {
   return PERSONAL_SUFFIXES.some((s) => jid.endsWith(s));
 }
 
-// Cari string yang BENAR-BENAR nomor telepon (bukan LID) di mana saja
-// di dalam payload. WhatsApp protocol baru sering pakai @lid (Linked
-// IDentifier) yang BUKAN nomor telepon — angkanya sintetik. Untuk
-// matching ke whitelist kita butuh nomor asli yang biasanya juga ada
-// di field lain payload (mis. _data.id.remote, _data.Info.Sender,
-// chatId, dst). Lakukan scan rekursif sederhana.
-function findRealPhoneJid(root: unknown): string | null {
+const PHONE_JID_RE = /^(\d{8,15})@(c\.us|s\.whatsapp\.net)$/;
+
+// Cari nomor telepon asli sender di payload WAHA. WhatsApp protocol
+// baru sering pakai @lid (Linked IDentifier) yang BUKAN nomor telepon —
+// angkanya sintetik dan tidak match whitelist user. Engine WAHA yang
+// berbeda menyimpan nomor asli di path yang berbeda:
+//
+//   - NOWEB (baileys-based, free CORE): payload._data.key.remoteJidAlt
+//     → "6281234757999@s.whatsapp.net"
+//   - WEBJS (WhatsApp Web protocol)   : payload._data.id.remote
+//     → "6281234757999@c.us"
+//
+// Sengaja TIDAK pakai scan rekursif terhadap seluruh body, karena body
+// juga punya field `me` (nomor bot sendiri) yang akan salah-pilih
+// kalau di-scan tanpa konteks. Cari di path yang spesifik dulu,
+// fallback scan HANYA terhadap subtree `payload`.
+function extractRealSenderPhoneJid(body: AnyObj): string | null {
+  const payload = obj(body.payload ?? body.data ?? body);
+  const data = obj(payload._data);
+  const key = obj(data.key);
+
+  // NOWEB: remoteJidAlt = nomor asli kalau remoteJid berupa @lid
+  const noweb = str(key.remoteJidAlt);
+  if (noweb && PHONE_JID_RE.test(noweb)) return noweb;
+
+  // NOWEB: kalau remoteJid sendiri sudah nomor (bukan @lid), pakai itu
+  const remoteJid = str(key.remoteJid);
+  if (remoteJid && PHONE_JID_RE.test(remoteJid)) return remoteJid;
+
+  // WEBJS: _data.id.remote
+  const webjsRemote = str(obj(data.id).remote);
+  if (webjsRemote && PHONE_JID_RE.test(webjsRemote)) return webjsRemote;
+
+  // Fallback: scan HANYA payload (tidak termasuk `me` di top-level).
   const seen = new WeakSet<object>();
   function scan(o: unknown, depth: number): string | null {
     if (depth > 6) return null;
     if (typeof o === "string") {
-      const m = o.match(/^(\d{8,15})@(c\.us|s\.whatsapp\.net)$/);
-      return m ? o : null;
+      return PHONE_JID_RE.test(o) ? o : null;
     }
     if (o && typeof o === "object") {
       if (seen.has(o)) return null;
@@ -40,7 +66,7 @@ function findRealPhoneJid(root: unknown): string | null {
     }
     return null;
   }
-  return scan(root, 0);
+  return scan(payload, 0);
 }
 
 // Extractor permisif. WAHA punya beberapa format payload tergantung
@@ -60,25 +86,30 @@ function extractMessage(body: unknown): {
   const b = obj(body);
   const event = str(b.event) ?? str(b.type) ?? null;
   const p = obj(b.payload ?? b.data ?? b);
+  const data = obj(p._data);
   const fromField = p.from;
   const fromStr =
     str(fromField) ??
     str(obj(fromField).id) ??
     str(p.chatId) ??
     str(obj(p.chat).id) ??
+    str(obj(data.key).remoteJid) ??
     null;
   const text =
     str(p.body) ??
     str(p.text) ??
     str(obj(p.message).body) ??
+    str(obj(data.message).conversation) ??
+    str(obj(obj(data.message).extendedTextMessage).text) ??
     "";
   const fromMe =
-    bool(p.fromMe) || bool(obj(p.message).fromMe);
+    bool(p.fromMe) || bool(obj(p.message).fromMe) || bool(obj(data.key).fromMe);
   const notifyName =
-    str(obj(p._data).notifyName) ??
+    str(data.pushName) ??
+    str(obj(data).notifyName) ??
     str(p.notifyName) ??
     str(obj(fromField).name);
-  const realPhoneJid = findRealPhoneJid(body);
+  const realPhoneJid = extractRealSenderPhoneJid(b);
   return { event, from: fromStr, realPhoneJid, text, fromMe, notifyName };
 }
 
