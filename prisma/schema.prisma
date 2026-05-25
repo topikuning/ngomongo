@@ -43,6 +43,7 @@ model WhitelistedNumber {
   isActive             Boolean  @default(true) @map("is_active")
   roleId               Int?     @map("role_id")
   providerId           Int?     @map("provider_id")
+  systemPrompt         String?  @map("system_prompt")
   createdAt            DateTime @default(now()) @map("created_at")
 
   role                 AiRole?      @relation(fields: [roleId], references: [id], onDelete: SetNull)

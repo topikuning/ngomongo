@@ -32,13 +32,17 @@ export async function ensureUser(waNumber: string, displayName?: string) {
   });
 }
 
+const FALLBACK_SYSTEM_PROMPT =
+  "Kamu sedang chat lewat WhatsApp dengan seorang kenalan. Balas natural seperti manusia ngobrol biasa, sesuai konteks percakapan. Jangan terdengar seperti AI atau asisten — tidak pakai disclaimer kaku, tidak pakai bullet/list di pesan biasa, tidak echoing peran.";
+
 export async function getEffectiveSystemPrompt(waNumber: string): Promise<string> {
   const entry = await getWhitelistEntry(waNumber);
+  // 1. systemPrompt per nomor (sumber utama setelah migrasi role-per-number)
+  if (entry?.systemPrompt && entry.systemPrompt.trim().length > 0) {
+    return entry.systemPrompt;
+  }
+  // 2. Backward compat: role lama yang masih ke-link via roleId
   if (entry?.role) return entry.role.systemPrompt;
-  const def = await prisma.aiRole.findFirst({
-    where: { isDefault: true },
-    orderBy: { createdAt: "desc" },
-  });
-  if (def) return def.systemPrompt;
-  return "Kamu adalah asisten WhatsApp yang ramah, ringkas, dan menjawab dalam Bahasa Indonesia.";
+  // 3. Fallback netral — tidak ada role-CS-style
+  return FALLBACK_SYSTEM_PROMPT;
 }

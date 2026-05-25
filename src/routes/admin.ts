@@ -194,12 +194,12 @@ export async function adminRoutes(app: FastifyInstance) {
       waNumber: string;
       displayName?: string;
       initialContext?: string;
-      roleId?: number | null;
+      systemPrompt?: string;
       providerId?: number | null;
       isActive?: boolean;
     };
   }>("/api/whitelist", async (req, reply) => {
-    const { waNumber, displayName, initialContext, roleId, providerId, isActive } = req.body;
+    const { waNumber, displayName, initialContext, systemPrompt, providerId, isActive } = req.body;
     const n = normalizeNumber(waNumber || "");
     if (!n) return reply.code(400).send({ error: "waNumber tidak valid" });
     const created = await prisma.whitelistedNumber.create({
@@ -207,7 +207,7 @@ export async function adminRoutes(app: FastifyInstance) {
         waNumber: n,
         displayName: displayName || null,
         initialContext: initialContext || null,
-        roleId: roleId ?? null,
+        systemPrompt: systemPrompt?.trim() ? systemPrompt.trim() : null,
         providerId: providerId ?? null,
         isActive: isActive ?? true,
       },
@@ -220,19 +220,17 @@ export async function adminRoutes(app: FastifyInstance) {
     Body: Partial<{
       displayName: string | null;
       initialContext: string | null;
-      roleId: number | null;
+      systemPrompt: string | null;
       providerId: number | null;
       isActive: boolean;
     }>;
   }>("/api/whitelist/:id", async (req) => {
     const id = Number(req.params.id);
-    // Whitelist seharusnya hanya boleh menerima field yang valid; lewatkan field
-    // lain yang tidak dikenal supaya Prisma tidak melempar error.
     const data: Record<string, unknown> = {};
     const b = req.body;
     if (b.displayName !== undefined) data.displayName = b.displayName;
     if (b.initialContext !== undefined) data.initialContext = b.initialContext;
-    if (b.roleId !== undefined) data.roleId = b.roleId;
+    if (b.systemPrompt !== undefined) data.systemPrompt = b.systemPrompt;
     if (b.providerId !== undefined) data.providerId = b.providerId;
     if (b.isActive !== undefined) data.isActive = b.isActive;
     return prisma.whitelistedNumber.update({ where: { id }, data });

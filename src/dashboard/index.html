@@ -357,7 +357,6 @@
   <h1>ngomongo</h1>
   <nav>
     <button data-tab="whitelist" class="active">Whitelist Nomor</button>
-    <button data-tab="roles">Role AI</button>
     <button data-tab="providers">AI Provider</button>
     <button data-tab="logs">Riwayat Chat</button>
     <button data-tab="prompts">Prompt</button>
@@ -381,32 +380,33 @@
           <input id="wl-name" placeholder="Budi" />
         </div>
         <div>
-          <label>Role AI</label>
-          <select id="wl-role"><option value="">— gunakan default global —</option></select>
-        </div>
-        <div>
           <label>Provider AI</label>
           <select id="wl-provider"><option value="">— gunakan default global —</option></select>
         </div>
       </div>
       <div style="margin-top:10px">
-        <label>Konteks Awal (teks manual)</label>
-        <textarea id="wl-context" placeholder="Budi, pelanggan VIP sejak 2022, sering tanya status pengiriman"></textarea>
+        <label>Persona / System Prompt
+          <span class="muted" style="font-weight:400">— bisa kosong kalau kamu akan upload riwayat chat (persona terbentuk dari sana). Untuk nomor manual, isi siapa AI memerankan apa di chat ini.</span>
+        </label>
+        <textarea id="wl-prompt" rows="4" placeholder="Contoh: Kamu adalah Hery (ayah dari Bintang). Balas natural seperti chat WhatsApp biasa, pendek dan santai. Panggilan ke Bintang: 'nak' / 'kamu'."></textarea>
+      </div>
+      <div style="margin-top:10px">
+        <label>Konteks Awal (opsional — fakta yang AI perlu tahu)</label>
+        <textarea id="wl-context" placeholder="Mis. 'Bintang sekolah di SMP X, suka boba, peliharaan kucing 2 ekor namanya Lulu dan Mimi.'"></textarea>
       </div>
       <div style="margin-top:12px"><button class="btn" onclick="addWhitelist()">Tambah Nomor</button></div>
     </div>
 
     <div class="card">
       <h2>Daftar Nomor Whitelist</h2>
-      <p class="muted" style="margin-top:-6px;font-size:13px;line-height:1.55">
-        Ubah <b>Role</b> dan <b>Provider AI</b> per-nomor langsung dari dropdown di kolomnya — tersimpan otomatis.
-        Pilih "default global" untuk memakai yang ditandai default di tab Role AI / AI Provider.
+      <p class="muted" style="margin-top:-6px;font-size:13px;line-height:1.6">
+        <b>Persona AI sekarang per-nomor</b> — tidak ada lagi "role global".
+        Tiap nomor punya <i>system prompt</i> sendiri (kolom Persona). Pilih <b>Provider AI</b> per nomor lewat dropdown (atau biarkan default).
         <br>
-        <b>Import Riwayat Chat</b>: pilih file .txt/.zip hasil
-        <i>Export chat</i> WhatsApp. Setelah file di-upload, sistem
-        akan menampilkan partisipan dan minta kamu memilih
-        <b>siapa yang AI perankan</b>. Summary terstruktur dengan peran
-        terkunci akan tersimpan dan dipakai sebagai memori awal.
+        Untuk persona berbasis chat asli: klik <b>Import Riwayat Chat</b> →
+        pilih file .txt/.zip hasil <i>Export chat</i> WhatsApp → pilih siapa yang AI perankan.
+        Summary terstruktur (peran + contoh pesan verbatim) tersimpan sebagai memori awal dan
+        otomatis mengontrol persona runtime; field "Persona" di tabel jadi pondasi saja.
       </p>
       <div id="wl-table"></div>
     </div>
@@ -452,7 +452,12 @@
             <option value="mistral">mistral</option>
           </select>
         </div>
-        <div><label>Model</label><input id="p-model" placeholder="gemini-2.0-flash" /></div>
+        <div>
+          <label>Model
+            <span class="muted" style="font-weight:400">— mulai ketik untuk autocomplete, atau pakai model custom</span>
+          </label>
+          <input id="p-model" list="ml-google" placeholder="gemini-2.5-flash" autocomplete="off" />
+        </div>
       </div>
       <div class="row" style="margin-top:10px">
         <div class="grow"><label>API Key</label><input id="p-key" type="password" placeholder="sk-..." /></div>
@@ -571,6 +576,58 @@
 
 <div id="toast" class="toast"></div>
 <div id="modal-root"></div>
+
+<!-- Saran model per provider untuk autocomplete (datalist).
+     User tetap bisa ketik nama model lain. Cek dokumentasi provider
+     untuk daftar model terbaru. -->
+<datalist id="ml-google">
+  <option value="gemini-2.5-pro">Gemini 2.5 Pro — context 1M, kualitas tertinggi</option>
+  <option value="gemini-2.5-flash">Gemini 2.5 Flash — cepat, context 1M, free tier</option>
+  <option value="gemini-2.5-flash-lite">Gemini 2.5 Flash Lite — paling murah</option>
+  <option value="gemini-2.0-flash">Gemini 2.0 Flash</option>
+  <option value="gemini-2.0-flash-lite">Gemini 2.0 Flash Lite</option>
+  <option value="gemini-1.5-pro">Gemini 1.5 Pro</option>
+  <option value="gemini-1.5-flash">Gemini 1.5 Flash</option>
+</datalist>
+
+<datalist id="ml-openai">
+  <option value="gpt-5">GPT-5</option>
+  <option value="gpt-5-mini">GPT-5 mini</option>
+  <option value="gpt-5-nano">GPT-5 nano</option>
+  <option value="gpt-4.1">GPT-4.1</option>
+  <option value="gpt-4.1-mini">GPT-4.1 mini</option>
+  <option value="gpt-4o">GPT-4o</option>
+  <option value="gpt-4o-mini">GPT-4o mini</option>
+  <option value="o3">o3 reasoning</option>
+  <option value="o3-mini">o3-mini reasoning</option>
+  <option value="o1">o1 reasoning (legacy)</option>
+</datalist>
+
+<datalist id="ml-deepseek">
+  <option value="deepseek-chat">DeepSeek-V3 (chat)</option>
+  <option value="deepseek-reasoner">DeepSeek-R1 (reasoning)</option>
+</datalist>
+
+<datalist id="ml-groq">
+  <option value="llama-3.3-70b-versatile">Llama 3.3 70B — kualitas baik, gratis</option>
+  <option value="llama-3.1-8b-instant">Llama 3.1 8B — paling cepat</option>
+  <option value="llama-3.2-90b-vision-preview">Llama 3.2 90B Vision</option>
+  <option value="mixtral-8x7b-32768">Mixtral 8x7B</option>
+  <option value="gemma2-9b-it">Gemma 2 9B</option>
+  <option value="deepseek-r1-distill-llama-70b">DeepSeek R1 Distill 70B</option>
+  <option value="qwen-2.5-32b">Qwen 2.5 32B</option>
+  <option value="moonshotai/kimi-k2-instruct">Kimi K2</option>
+</datalist>
+
+<datalist id="ml-mistral">
+  <option value="mistral-large-latest">Mistral Large — kualitas tertinggi</option>
+  <option value="mistral-medium-latest">Mistral Medium — balance</option>
+  <option value="mistral-small-latest">Mistral Small — cepat & murah</option>
+  <option value="ministral-8b-latest">Ministral 8B — edge model kecil</option>
+  <option value="ministral-3b-latest">Ministral 3B — paling ringan</option>
+  <option value="codestral-latest">Codestral — khusus coding</option>
+  <option value="pixtral-12b-2409">Pixtral 12B — vision</option>
+</datalist>
 
 <script>
 const $ = (s) => document.querySelector(s);
@@ -743,44 +800,27 @@ async function api(path, opts = {}) {
 
 // ===================== WHITELIST =====================
 async function loadRolesIntoSelect() {
-  const [roles, providers] = await Promise.all([api("/api/roles"), api("/api/providers")]);
-  const rSel = $("#wl-role");
-  rSel.innerHTML = '<option value="">— gunakan default global —</option>' +
-    roles.map(r => `<option value="${r.id}">${escapeHtml(r.nama)}${r.isDefault ? " (default)" : ""}</option>`).join("");
+  const providers = await api("/api/providers");
   const pSel = $("#wl-provider");
   pSel.innerHTML = '<option value="">— gunakan default global —</option>' +
     providers.map(p => `<option value="${p.id}">${escapeHtml(p.nama)} · ${escapeHtml(p.provider)}/${escapeHtml(p.model)}${p.isDefault ? " (default)" : ""}</option>`).join("");
 }
 
-let ROLES_CACHE = [];
-
 async function loadWhitelist() {
   try {
-    [ROLES_CACHE, PROVIDERS_CACHE] = await Promise.all([
-      api("/api/roles"),
-      api("/api/providers"),
-    ]);
+    PROVIDERS_CACHE = await api("/api/providers");
     const list = await api("/api/whitelist");
     const tbl = $("#wl-table");
     if (list.length === 0) { tbl.innerHTML = '<div class="empty">Belum ada nomor</div>'; return; }
     tbl.innerHTML = `<table>
       <thead><tr>
         <th>Nomor</th><th>Nama</th>
-        <th style="min-width:180px">Role (per-nomor)</th>
-        <th style="min-width:180px">Provider AI (per-nomor)</th>
+        <th style="min-width:220px">Provider AI (per-nomor)</th>
+        <th>Persona</th>
         <th>Konteks</th><th>Status</th><th>Initial Summary</th><th></th>
       </tr></thead>
       <tbody>${list.map(rowWl).join("")}</tbody></table>`;
   } catch (e) { toast(e.message, "err"); }
-}
-
-function roleOptionsFor(currentRoleId) {
-  const def = ROLES_CACHE.find(r => r.isDefault);
-  const defLabel = def ? `— default global (${escapeHtml(def.nama)}) —` : "— default global —";
-  const opts = [`<option value="">${defLabel}</option>`]
-    .concat(ROLES_CACHE.map(r =>
-      `<option value="${r.id}" ${r.id === currentRoleId ? "selected" : ""}>${escapeHtml(r.nama)}${r.isDefault ? " (default)" : ""}</option>`));
-  return opts.join("");
 }
 
 function providerOptionsFor(currentProviderId) {
@@ -795,24 +835,26 @@ function providerOptionsFor(currentProviderId) {
 }
 
 function rowWl(w) {
+  const personaPill = w.systemPrompt
+    ? `<span class="pill on" title="${escapeHtml(w.systemPrompt.slice(0, 200))}">custom</span>`
+    : `<span class="pill" title="Pakai fallback netral. Klik 'Edit Persona' untuk mengisi.">default</span>`;
+  const summaryPill = w.initialSummaryReady
+    ? '<span class="pill on">siap (mengontrol persona runtime)</span>'
+    : '<span class="pill warn">belum</span>';
   return `<tr>
     <td><b>${escapeHtml(w.waNumber)}</b></td>
     <td>${escapeHtml(w.displayName || "—")}</td>
-    <td>
-      <select onchange="setWlRole(${w.id}, this.value)" style="font-size:12px;padding:6px 8px">
-        ${roleOptionsFor(w.roleId)}
-      </select>
-    </td>
     <td>
       <select onchange="setWlProvider(${w.id}, this.value)" style="font-size:12px;padding:6px 8px">
         ${providerOptionsFor(w.providerId)}
       </select>
     </td>
-    <td style="max-width:220px"><span class="muted">${escapeHtml((w.initialContext || "").slice(0, 80))}${(w.initialContext || "").length > 80 ? "…" : ""}</span></td>
+    <td>${personaPill}</td>
+    <td style="max-width:200px"><span class="muted">${escapeHtml((w.initialContext || "").slice(0, 60))}${(w.initialContext || "").length > 60 ? "…" : ""}</span></td>
     <td>${w.isActive ? '<span class="pill on">aktif</span>' : '<span class="pill off">nonaktif</span>'}</td>
-    <td>${w.initialSummaryReady ? '<span class="pill on">siap</span>' : '<span class="pill warn">belum</span>'}</td>
+    <td>${summaryPill}</td>
     <td><div class="actions">
-      <button class="btn-ghost" onclick="editWl(${w.id})">Edit Nama/Konteks</button>
+      <button class="btn-ghost" onclick="editWl(${w.id})">Edit Persona/Konteks</button>
       <button class="btn-ghost" onclick="toggleWl(${w.id}, ${!w.isActive})">${w.isActive ? "Nonaktifkan" : "Aktifkan"}</button>
       <button class="btn-ghost" onclick="uploadWl(${w.id})" title="Upload file .txt/.zip hasil 'Export chat' WhatsApp">Import Riwayat Chat</button>
       <button class="btn-ghost" onclick="buildFromText(${w.id})">Summary dari Teks Konteks</button>
@@ -820,14 +862,6 @@ function rowWl(w) {
       <button class="btn-danger" onclick="delWl(${w.id})">Hapus</button>
     </div></td>
   </tr>`;
-}
-
-async function setWlRole(id, value) {
-  const roleId = value === "" ? null : Number(value);
-  try {
-    await api(`/api/whitelist/${id}`, { method: "PUT", body: JSON.stringify({ roleId }) });
-    toast(roleId ? "Role nomor diperbarui" : "Nomor dikembalikan ke role default global");
-  } catch (e) { toast(e.message, "err"); }
 }
 
 async function setWlProvider(id, value) {
@@ -844,13 +878,13 @@ async function addWhitelist() {
       waNumber: $("#wl-number").value,
       displayName: $("#wl-name").value || null,
       initialContext: $("#wl-context").value || null,
-      roleId: $("#wl-role").value ? Number($("#wl-role").value) : null,
+      systemPrompt: $("#wl-prompt").value || null,
       providerId: $("#wl-provider").value ? Number($("#wl-provider").value) : null,
     };
     await api("/api/whitelist", { method: "POST", body: JSON.stringify(body) });
     toast("Nomor ditambahkan");
-    $("#wl-number").value = ""; $("#wl-name").value = ""; $("#wl-context").value = "";
-    $("#wl-role").value = ""; $("#wl-provider").value = "";
+    ["#wl-number", "#wl-name", "#wl-context", "#wl-prompt"].forEach(s => $(s).value = "");
+    $("#wl-provider").value = "";
     loadWhitelist();
   } catch (e) { toast(e.message, "err"); }
 }
@@ -877,12 +911,17 @@ async function editWl(id) {
   if (!w) return;
   const data = await showFormModal({
     title: `Edit nomor ${w.waNumber}`,
+    wide: true,
     fields: [
       { name: "displayName", label: "Nama tampilan", value: w.displayName || "", placeholder: "Budi" },
-      { name: "initialContext", label: "Konteks awal (teks bebas)", type: "textarea", rows: 6,
+      { name: "systemPrompt", label: "Persona / System Prompt", type: "textarea", rows: 8,
+        value: w.systemPrompt || "",
+        placeholder: "Kamu adalah X (peran). Balas natural seperti chat WhatsApp. Panggilan ke lawan bicara: 'nak'/'kak'/...",
+        hint: "Kosongkan untuk pakai fallback netral. Kalau nomor ini punya Initial Summary siap, persona di summary itu yang dipakai — field ini jadi pondasi saja." },
+      { name: "initialContext", label: "Konteks awal (fakta/info)", type: "textarea", rows: 5,
         value: w.initialContext || "",
-        placeholder: "Budi, pelanggan VIP sejak 2022, sering tanya status pengiriman",
-        hint: "Setelah disimpan, gunakan tombol 'Summary dari Teks Konteks' di baris untuk regenerasi initial summary." },
+        placeholder: "Mis. 'Bintang anak SMP 2, suka boba, peliharaan kucing'.",
+        hint: "Klik 'Summary dari Teks Konteks' di baris setelah simpan untuk regenerasi summary." },
     ],
     submitLabel: "Simpan",
   });
@@ -890,7 +929,11 @@ async function editWl(id) {
   try {
     await api(`/api/whitelist/${id}`, {
       method: "PUT",
-      body: JSON.stringify({ displayName: data.displayName, initialContext: data.initialContext }),
+      body: JSON.stringify({
+        displayName: data.displayName,
+        systemPrompt: data.systemPrompt,
+        initialContext: data.initialContext,
+      }),
     });
     toast("Diperbarui");
     loadWhitelist();
@@ -1539,6 +1582,15 @@ function escapeHtml(s) {
   return String(s ?? "").replace(/[&<>"']/g, (c) =>
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
+
+// Swap datalist saran model saat provider berubah
+$("#p-provider").addEventListener("change", (e) => {
+  const inp = $("#p-model");
+  inp.setAttribute("list", "ml-" + e.target.value);
+  // Reset value kalau berasal dari saran provider sebelumnya supaya
+  // user tidak salah-set (mis. model Gemini ditempel di provider OpenAI).
+  inp.value = "";
+});
 
 // init
 tab("whitelist");

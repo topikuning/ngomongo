@@ -143,7 +143,12 @@ export function extractTextFromBuffer(buf: Buffer, filename: string): string {
   return buf.toString("utf-8");
 }
 
-function takeSample(messages: ParsedMessage[], maxChars = 16000): string {
+// Kirim PENUH ke LLM — tidak ada sampling default. User ingin AI lihat
+// seluruh history supaya style/kondisi terkini akurat. Cap hanya sebagai
+// safety net kalau ukuran benar-benar ekstrem (mis. > 1.5M karakter,
+// di luar konteks model paling besar sekalipun) — saat itu fallback
+// pakai start+middle+end. Default cap dinaikkan jauh dari 16K → 1.2M.
+function takeSample(messages: ParsedMessage[], maxChars = 1_200_000): string {
   const joined = messages.map((m) => `${m.sender}: ${m.content}`).join("\n");
   if (joined.length <= maxChars) return joined;
   const chunkSize = Math.floor(maxChars / 3);
@@ -151,7 +156,7 @@ function takeSample(messages: ParsedMessage[], maxChars = 16000): string {
   const midPos = Math.max(0, Math.floor(joined.length / 2) - Math.floor(chunkSize / 2));
   const middle = joined.slice(midPos, midPos + chunkSize);
   const end = joined.slice(-chunkSize);
-  return `${start}\n...\n${middle}\n...\n${end}`;
+  return `${start}\n...\n[CHAT TERLALU PANJANG — bagian tengah dipangkas untuk fit dalam context window]\n...\n${middle}\n...\n${end}`;
 }
 
 /**
