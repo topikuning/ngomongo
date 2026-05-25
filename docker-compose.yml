@@ -1,0 +1,54 @@
+# Untuk development lokal — meniru setup Railway secara sederhana.
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: ngomongo
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+
+  waha:
+    # Versi gratis WAHA — cukup untuk dev. Untuk production, pertimbangkan WAHA Plus.
+    image: devlikeapro/waha:latest
+    restart: unless-stopped
+    ports:
+      - "3001:3000"
+    environment:
+      WHATSAPP_API_KEY: ${WAHA_API_KEY:-rahasia-lokal}
+      WHATSAPP_DEFAULT_ENGINE: WEBJS
+    volumes:
+      - waha-sessions:/app/.sessions
+
+  backend:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      - postgres
+      - redis
+      - waha
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/ngomongo?schema=public
+      REDIS_URL: redis://redis:6379
+      WAHA_URL: http://waha:3000
+      WAHA_API_KEY: ${WAHA_API_KEY:-rahasia-lokal}
+      WAHA_SESSION: ${WAHA_SESSION:-default}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin}
+      PORT: 3000
+      NODE_ENV: production
+    ports:
+      - "3000:3000"
+
+volumes:
+  pgdata:
+  waha-sessions:

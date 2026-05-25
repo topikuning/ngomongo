@@ -1,0 +1,81 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model AiProvider {
+  id         Int      @id @default(autoincrement())
+  nama       String
+  provider   String
+  model      String
+  apiKey     String   @map("api_key")
+  isActive   Boolean  @default(false) @map("is_active")
+  priority   Int      @default(0)
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@map("ai_providers")
+}
+
+model AiRole {
+  id            Int      @id @default(autoincrement())
+  nama          String
+  systemPrompt  String   @map("system_prompt")
+  isDefault     Boolean  @default(false) @map("is_default")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  whitelist     WhitelistedNumber[]
+
+  @@map("ai_roles")
+}
+
+model WhitelistedNumber {
+  id                   Int      @id @default(autoincrement())
+  waNumber             String   @unique @map("wa_number")
+  displayName          String?  @map("display_name")
+  initialContext       String?  @map("initial_context")
+  initialSummaryReady  Boolean  @default(false) @map("initial_summary_ready")
+  isActive             Boolean  @default(true) @map("is_active")
+  roleId               Int?     @map("role_id")
+  createdAt            DateTime @default(now()) @map("created_at")
+
+  role                 AiRole?  @relation(fields: [roleId], references: [id], onDelete: SetNull)
+
+  @@map("whitelisted_numbers")
+}
+
+model User {
+  id          Int      @id @default(autoincrement())
+  waNumber    String   @unique @map("wa_number")
+  displayName String?  @map("display_name")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@map("users")
+}
+
+model ConversationLog {
+  id         Int      @id @default(autoincrement())
+  waNumber   String   @map("wa_number")
+  role       String
+  content    String
+  tokensUsed Int      @default(0) @map("tokens_used")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@index([waNumber, createdAt])
+  @@map("conversation_logs")
+}
+
+model MemorySnapshot {
+  id           Int      @id @default(autoincrement())
+  waNumber     String   @map("wa_number")
+  summary      String
+  messageCount Int      @default(0) @map("message_count")
+  isInitial    Boolean  @default(false) @map("is_initial")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@index([waNumber, createdAt])
+  @@map("memory_snapshots")
+}

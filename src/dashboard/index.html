@@ -1,0 +1,646 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>ngomongo · Admin Dashboard</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --panel: #1a1d23;
+    --panel-2: #22262e;
+    --border: #2c313a;
+    --text: #e6e8ec;
+    --muted: #9aa0a8;
+    --accent: #25d366;
+    --accent-2: #128c7e;
+    --danger: #e85b5b;
+    --warn: #e0b341;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    font-size: 14px;
+  }
+  header {
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    padding: 14px 24px;
+    display: flex;
+    align-items: center;
+    gap: 24px;
+  }
+  header h1 {
+    font-size: 18px;
+    margin: 0;
+    color: var(--accent);
+  }
+  nav {
+    display: flex;
+    gap: 4px;
+  }
+  nav button {
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--muted);
+    padding: 8px 14px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 14px;
+  }
+  nav button:hover { color: var(--text); background: var(--panel-2); }
+  nav button.active { color: var(--text); background: var(--panel-2); border-color: var(--border); }
+  main { padding: 24px; max-width: 1200px; margin: 0 auto; }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 18px;
+    margin-bottom: 18px;
+  }
+  .card h2 { margin: 0 0 14px; font-size: 16px; }
+  .row { display: flex; gap: 12px; flex-wrap: wrap; }
+  .row > * { flex: 1; min-width: 180px; }
+  label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+  input, select, textarea, button {
+    font-family: inherit;
+    font-size: 14px;
+  }
+  input, select, textarea {
+    width: 100%;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 9px 11px;
+    border-radius: 6px;
+  }
+  textarea { resize: vertical; min-height: 80px; font-family: ui-monospace, Menlo, Consolas, monospace; }
+  input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent-2); }
+  button.btn {
+    background: var(--accent);
+    border: none;
+    color: #0a0f0a;
+    padding: 9px 16px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: 600;
+  }
+  button.btn:hover { background: var(--accent-2); color: white; }
+  button.btn-ghost {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 7px 12px;
+    border-radius: 6px;
+    cursor: pointer;
+  }
+  button.btn-ghost:hover { background: var(--panel-2); }
+  button.btn-danger {
+    background: transparent;
+    border: 1px solid var(--danger);
+    color: var(--danger);
+    padding: 6px 10px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 13px;
+  }
+  button.btn-danger:hover { background: var(--danger); color: white; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { padding: 10px 8px; text-align: left; border-bottom: 1px solid var(--border); font-size: 13px; }
+  th { color: var(--muted); font-weight: 500; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; }
+  td .actions { display: flex; gap: 6px; flex-wrap: wrap; }
+  .pill {
+    display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px;
+    background: var(--panel-2); color: var(--muted);
+  }
+  .pill.on { background: rgba(37,211,102,0.15); color: var(--accent); }
+  .pill.off { background: rgba(232,91,91,0.15); color: var(--danger); }
+  .pill.warn { background: rgba(224,179,65,0.15); color: var(--warn); }
+  .muted { color: var(--muted); }
+  .grow { flex: 2; }
+  .toast {
+    position: fixed; right: 20px; bottom: 20px;
+    background: var(--panel-2); border: 1px solid var(--border);
+    color: var(--text); padding: 10px 14px; border-radius: 8px;
+    box-shadow: 0 8px 20px rgba(0,0,0,0.4);
+    opacity: 0; transform: translateY(10px); transition: all .2s;
+    z-index: 999;
+  }
+  .toast.show { opacity: 1; transform: translateY(0); }
+  .toast.ok { border-color: var(--accent); }
+  .toast.err { border-color: var(--danger); }
+  details { background: var(--panel-2); border: 1px solid var(--border); border-radius: 6px; padding: 10px 12px; margin-bottom: 8px; }
+  details summary { cursor: pointer; user-select: none; }
+  pre { white-space: pre-wrap; word-break: break-word; background: var(--bg); padding: 12px; border-radius: 6px; font-size: 12px; }
+  .upload-area {
+    border: 1px dashed var(--border);
+    padding: 16px;
+    border-radius: 8px;
+    background: var(--panel-2);
+  }
+  .empty { color: var(--muted); padding: 24px; text-align: center; }
+  .badge-role { background: rgba(37,211,102,0.12); color: var(--accent); padding: 2px 8px; border-radius: 10px; font-size: 11px; }
+  .chat-wrap { max-height: 60vh; overflow: auto; padding: 6px; }
+  .msg { padding: 8px 12px; margin: 6px 0; border-radius: 10px; max-width: 75%; font-size: 13px; }
+  .msg.user { background: #0b3b2e; margin-left: auto; }
+  .msg.assistant { background: #2b2f37; }
+  .msg .when { font-size: 10px; color: var(--muted); margin-top: 4px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>ngomongo</h1>
+  <nav>
+    <button data-tab="whitelist" class="active">Whitelist Nomor</button>
+    <button data-tab="roles">Role AI</button>
+    <button data-tab="providers">AI Provider</button>
+    <button data-tab="logs">Riwayat Chat</button>
+    <button data-tab="settings">Pengaturan</button>
+  </nav>
+</header>
+
+<main>
+  <!-- ================ WHITELIST ================ -->
+  <section data-section="whitelist">
+    <div class="card">
+      <h2>Tambah Nomor ke Whitelist</h2>
+      <div class="row">
+        <div>
+          <label>Nomor WA (format internasional tanpa +)</label>
+          <input id="wl-number" placeholder="6281234567890" />
+        </div>
+        <div>
+          <label>Nama Tampilan</label>
+          <input id="wl-name" placeholder="Budi" />
+        </div>
+        <div>
+          <label>Role AI</label>
+          <select id="wl-role"><option value="">— gunakan default global —</option></select>
+        </div>
+      </div>
+      <div style="margin-top:10px">
+        <label>Konteks Awal (teks manual)</label>
+        <textarea id="wl-context" placeholder="Budi, pelanggan VIP sejak 2022, sering tanya status pengiriman"></textarea>
+      </div>
+      <div style="margin-top:12px"><button class="btn" onclick="addWhitelist()">Tambah Nomor</button></div>
+    </div>
+
+    <div class="card">
+      <h2>Daftar Nomor Whitelist</h2>
+      <div id="wl-table"></div>
+    </div>
+  </section>
+
+  <!-- ================ ROLES ================ -->
+  <section data-section="roles" hidden>
+    <div class="card">
+      <h2>Tambah Role AI Baru</h2>
+      <div class="row">
+        <div><label>Nama Role</label><input id="r-name" placeholder="Customer Service" /></div>
+        <div style="flex:0 0 220px;display:flex;align-items:end;gap:6px;">
+          <label style="display:flex;align-items:center;gap:6px;margin:0;color:var(--text)">
+            <input type="checkbox" id="r-default" style="width:auto" /> Jadikan default global
+          </label>
+        </div>
+      </div>
+      <div style="margin-top:10px">
+        <label>System Prompt (instruksi kepribadian & tugas AI)</label>
+        <textarea id="r-prompt" rows="6" placeholder="Kamu adalah CS resmi toko XYZ. Jawab ramah, ringkas, dalam Bahasa Indonesia."></textarea>
+      </div>
+      <div style="margin-top:12px"><button class="btn" onclick="addRole()">Simpan Role</button></div>
+    </div>
+
+    <div class="card">
+      <h2>Daftar Role</h2>
+      <div id="r-table"></div>
+    </div>
+  </section>
+
+  <!-- ================ PROVIDERS ================ -->
+  <section data-section="providers" hidden>
+    <div class="card">
+      <h2>Tambah AI Provider</h2>
+      <div class="row">
+        <div><label>Nama (label bebas)</label><input id="p-name" placeholder="Gemini Flash" /></div>
+        <div><label>Provider</label>
+          <select id="p-provider">
+            <option value="google">google</option>
+            <option value="openai">openai</option>
+            <option value="deepseek">deepseek</option>
+            <option value="groq">groq</option>
+          </select>
+        </div>
+        <div><label>Model</label><input id="p-model" placeholder="gemini-2.0-flash" /></div>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <div class="grow"><label>API Key</label><input id="p-key" type="password" placeholder="sk-..." /></div>
+        <div style="flex:0 0 120px"><label>Prioritas</label><input id="p-priority" type="number" value="0" /></div>
+        <div style="flex:0 0 180px;display:flex;align-items:end">
+          <label style="display:flex;align-items:center;gap:6px;margin:0;color:var(--text)">
+            <input type="checkbox" id="p-active" style="width:auto" /> Aktifkan sekarang
+          </label>
+        </div>
+      </div>
+      <div style="margin-top:12px"><button class="btn" onclick="addProvider()">Simpan Provider</button></div>
+    </div>
+
+    <div class="card">
+      <h2>Daftar Provider</h2>
+      <p class="muted" style="margin-top:-6px">Hanya satu provider yang aktif pada satu waktu. Klik <b>Aktifkan</b> untuk berganti.</p>
+      <div id="p-table"></div>
+    </div>
+  </section>
+
+  <!-- ================ LOGS ================ -->
+  <section data-section="logs" hidden>
+    <div class="card">
+      <h2>Filter Riwayat</h2>
+      <div class="row">
+        <div>
+          <label>Nomor WA</label>
+          <select id="lg-number"><option value="">— pilih nomor —</option></select>
+        </div>
+        <div><label>Dari tanggal</label><input id="lg-from" type="date" /></div>
+        <div><label>Sampai tanggal</label><input id="lg-to" type="date" /></div>
+        <div style="flex:0 0 120px;display:flex;align-items:end">
+          <button class="btn" onclick="loadLogs()">Tampilkan</button>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Percakapan</h2>
+      <div id="lg-chat" class="chat-wrap"></div>
+    </div>
+  </section>
+
+  <!-- ================ SETTINGS ================ -->
+  <section data-section="settings" hidden>
+    <div class="card">
+      <h2>Pengaturan</h2>
+      <p class="muted">
+        ADMIN_USERNAME dan ADMIN_PASSWORD dibaca dari environment variable.
+        Untuk menggantinya, perbarui env variable di Railway lalu redeploy service backend.
+      </p>
+      <div id="s-info"></div>
+    </div>
+    <div class="card">
+      <h2>Informasi WAHA</h2>
+      <p class="muted">URL WAHA dan session diset via env <code>WAHA_URL</code> dan <code>WAHA_SESSION</code>.</p>
+      <div id="s-waha"></div>
+    </div>
+  </section>
+</main>
+
+<div id="toast" class="toast"></div>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const $$ = (s) => document.querySelectorAll(s);
+
+function tab(name) {
+  $$("nav button").forEach(b => b.classList.toggle("active", b.dataset.tab === name));
+  $$("section[data-section]").forEach(s => s.hidden = s.dataset.section !== name);
+  if (name === "whitelist") { loadRolesIntoSelect(); loadWhitelist(); }
+  if (name === "roles") loadRoles();
+  if (name === "providers") loadProviders();
+  if (name === "logs") loadNumbersForLogs();
+  if (name === "settings") loadSettings();
+}
+$$("nav button").forEach(b => b.addEventListener("click", () => tab(b.dataset.tab)));
+
+function toast(msg, kind = "ok") {
+  const t = $("#toast");
+  t.textContent = msg;
+  t.className = "toast show " + kind;
+  setTimeout(() => t.className = "toast " + kind, 3000);
+}
+
+async function api(path, opts = {}) {
+  const res = await fetch(path, {
+    ...opts,
+    headers: { "Content-Type": "application/json", ...(opts.headers || {}) },
+  });
+  if (!res.ok) {
+    let msg = res.statusText;
+    try { const j = await res.json(); if (j.error) msg = j.error; } catch {}
+    throw new Error(msg);
+  }
+  return res.json();
+}
+
+// ===================== WHITELIST =====================
+async function loadRolesIntoSelect() {
+  const roles = await api("/api/roles");
+  const sel = $("#wl-role");
+  sel.innerHTML = '<option value="">— gunakan default global —</option>' +
+    roles.map(r => `<option value="${r.id}">${escapeHtml(r.nama)}${r.isDefault ? " (default)" : ""}</option>`).join("");
+}
+
+async function loadWhitelist() {
+  try {
+    const list = await api("/api/whitelist");
+    const tbl = $("#wl-table");
+    if (list.length === 0) { tbl.innerHTML = '<div class="empty">Belum ada nomor</div>'; return; }
+    tbl.innerHTML = `<table>
+      <thead><tr>
+        <th>Nomor</th><th>Nama</th><th>Role</th><th>Konteks</th><th>Status</th><th>Initial Summary</th><th></th>
+      </tr></thead>
+      <tbody>${list.map(rowWl).join("")}</tbody></table>`;
+  } catch (e) { toast(e.message, "err"); }
+}
+
+function rowWl(w) {
+  return `<tr>
+    <td><b>${escapeHtml(w.waNumber)}</b></td>
+    <td>${escapeHtml(w.displayName || "—")}</td>
+    <td>${w.role ? `<span class="badge-role">${escapeHtml(w.role.nama)}</span>` : '<span class="muted">default</span>'}</td>
+    <td style="max-width:240px"><span class="muted">${escapeHtml((w.initialContext || "").slice(0, 80))}${(w.initialContext || "").length > 80 ? "…" : ""}</span></td>
+    <td>${w.isActive ? '<span class="pill on">aktif</span>' : '<span class="pill off">nonaktif</span>'}</td>
+    <td>${w.initialSummaryReady ? '<span class="pill on">siap</span>' : '<span class="pill warn">belum</span>'}</td>
+    <td><div class="actions">
+      <button class="btn-ghost" onclick="editWl(${w.id})">Edit</button>
+      <button class="btn-ghost" onclick="toggleWl(${w.id}, ${!w.isActive})">${w.isActive ? "Nonaktifkan" : "Aktifkan"}</button>
+      <button class="btn-ghost" onclick="uploadWl(${w.id})">Upload Export</button>
+      <button class="btn-ghost" onclick="buildFromText(${w.id})">Bangun dari Teks</button>
+      <button class="btn-ghost" onclick="viewSummary('${w.waNumber}')">Lihat Summary</button>
+      <button class="btn-danger" onclick="delWl(${w.id})">Hapus</button>
+    </div></td>
+  </tr>`;
+}
+
+async function addWhitelist() {
+  try {
+    const body = {
+      waNumber: $("#wl-number").value,
+      displayName: $("#wl-name").value || null,
+      initialContext: $("#wl-context").value || null,
+      roleId: $("#wl-role").value ? Number($("#wl-role").value) : null,
+    };
+    await api("/api/whitelist", { method: "POST", body: JSON.stringify(body) });
+    toast("Nomor ditambahkan");
+    $("#wl-number").value = ""; $("#wl-name").value = ""; $("#wl-context").value = "";
+    loadWhitelist();
+  } catch (e) { toast(e.message, "err"); }
+}
+
+async function delWl(id) {
+  if (!confirm("Hapus nomor ini dari whitelist?")) return;
+  try { await api(`/api/whitelist/${id}`, { method: "DELETE" }); loadWhitelist(); }
+  catch (e) { toast(e.message, "err"); }
+}
+
+async function toggleWl(id, isActive) {
+  try { await api(`/api/whitelist/${id}`, { method: "PUT", body: JSON.stringify({ isActive }) }); loadWhitelist(); }
+  catch (e) { toast(e.message, "err"); }
+}
+
+async function editWl(id) {
+  const list = await api("/api/whitelist");
+  const w = list.find(x => x.id === id);
+  if (!w) return;
+  const displayName = prompt("Nama tampilan:", w.displayName || "") ?? w.displayName;
+  const initialContext = prompt("Konteks awal:", w.initialContext || "") ?? w.initialContext;
+  const roles = await api("/api/roles");
+  const opts = ["(default global)", ...roles.map(r => `${r.id}: ${r.nama}`)].join("\n");
+  const sel = prompt(`Role ID (kosongkan untuk default global)\n${opts}`, w.roleId || "");
+  const roleId = sel === "" ? null : Number(sel) || null;
+  try {
+    await api(`/api/whitelist/${id}`, {
+      method: "PUT",
+      body: JSON.stringify({ displayName, initialContext, roleId }),
+    });
+    toast("Diperbarui");
+    loadWhitelist();
+  } catch (e) { toast(e.message, "err"); }
+}
+
+function uploadWl(id) {
+  const inp = document.createElement("input");
+  inp.type = "file";
+  inp.accept = ".zip,.txt";
+  inp.onchange = async () => {
+    if (!inp.files[0]) return;
+    const fd = new FormData();
+    fd.append("file", inp.files[0]);
+    toast("Memproses file, harap tunggu…");
+    try {
+      const res = await fetch(`/api/whitelist/${id}/upload-export`, { method: "POST", body: fd });
+      if (!res.ok) throw new Error((await res.json()).error || res.statusText);
+      const j = await res.json();
+      toast(`Selesai. ${j.messageCount} pesan diparse.`);
+      loadWhitelist();
+      alert("Initial Summary tersimpan:\n\n" + j.summary);
+    } catch (e) { toast(e.message, "err"); }
+  };
+  inp.click();
+}
+
+async function buildFromText(id) {
+  if (!confirm("Bangun initial summary dari teks konteks manual?")) return;
+  try {
+    const r = await api(`/api/whitelist/${id}/build-summary-from-text`, { method: "POST" });
+    toast("Summary dibuat");
+    loadWhitelist();
+    alert("Initial Summary:\n\n" + r.summary);
+  } catch (e) { toast(e.message, "err"); }
+}
+
+async function viewSummary(waNumber) {
+  try {
+    const s = await api(`/api/initial-summary/${waNumber}`);
+    alert(s.summary || "Belum ada initial summary untuk nomor ini.");
+  } catch (e) { toast(e.message, "err"); }
+}
+
+// ===================== ROLES =====================
+async function loadRoles() {
+  try {
+    const list = await api("/api/roles");
+    const tbl = $("#r-table");
+    if (list.length === 0) { tbl.innerHTML = '<div class="empty">Belum ada role</div>'; return; }
+    tbl.innerHTML = list.map(r => `<details>
+      <summary><b>${escapeHtml(r.nama)}</b> ${r.isDefault ? '<span class="pill on">default global</span>' : ""}</summary>
+      <pre>${escapeHtml(r.systemPrompt)}</pre>
+      <div class="actions">
+        <button class="btn-ghost" onclick="editRole(${r.id})">Edit</button>
+        ${r.isDefault ? "" : `<button class="btn-ghost" onclick="setDefaultRole(${r.id})">Jadikan Default</button>`}
+        <button class="btn-danger" onclick="delRole(${r.id})">Hapus</button>
+      </div>
+    </details>`).join("");
+  } catch (e) { toast(e.message, "err"); }
+}
+
+async function addRole() {
+  try {
+    await api("/api/roles", {
+      method: "POST",
+      body: JSON.stringify({
+        nama: $("#r-name").value,
+        systemPrompt: $("#r-prompt").value,
+        isDefault: $("#r-default").checked,
+      }),
+    });
+    toast("Role disimpan");
+    $("#r-name").value = ""; $("#r-prompt").value = ""; $("#r-default").checked = false;
+    loadRoles();
+  } catch (e) { toast(e.message, "err"); }
+}
+
+async function editRole(id) {
+  const list = await api("/api/roles");
+  const r = list.find(x => x.id === id); if (!r) return;
+  const nama = prompt("Nama role:", r.nama) ?? r.nama;
+  const systemPrompt = prompt("System prompt:", r.systemPrompt) ?? r.systemPrompt;
+  try {
+    await api(`/api/roles/${id}`, { method: "PUT", body: JSON.stringify({ nama, systemPrompt }) });
+    toast("Role diperbarui"); loadRoles();
+  } catch (e) { toast(e.message, "err"); }
+}
+
+async function setDefaultRole(id) {
+  try { await api(`/api/roles/${id}`, { method: "PUT", body: JSON.stringify({ isDefault: true }) }); loadRoles(); }
+  catch (e) { toast(e.message, "err"); }
+}
+
+async function delRole(id) {
+  if (!confirm("Hapus role ini?")) return;
+  try { await api(`/api/roles/${id}`, { method: "DELETE" }); loadRoles(); }
+  catch (e) { toast(e.message, "err"); }
+}
+
+// ===================== PROVIDERS =====================
+async function loadProviders() {
+  try {
+    const list = await api("/api/providers");
+    const tbl = $("#p-table");
+    if (list.length === 0) { tbl.innerHTML = '<div class="empty">Belum ada provider</div>'; return; }
+    tbl.innerHTML = `<table>
+      <thead><tr><th>Nama</th><th>Provider</th><th>Model</th><th>Status</th><th>Prioritas</th><th></th></tr></thead>
+      <tbody>${list.map(p => `<tr>
+        <td><b>${escapeHtml(p.nama)}</b></td>
+        <td>${escapeHtml(p.provider)}</td>
+        <td>${escapeHtml(p.model)}</td>
+        <td>${p.isActive ? '<span class="pill on">AKTIF</span>' : '<span class="pill off">nonaktif</span>'}</td>
+        <td>${p.priority}</td>
+        <td><div class="actions">
+          ${p.isActive ? "" : `<button class="btn-ghost" onclick="activate(${p.id})">Aktifkan</button>`}
+          <button class="btn-ghost" onclick="editProvider(${p.id})">Edit</button>
+          <button class="btn-danger" onclick="delProvider(${p.id})">Hapus</button>
+        </div></td>
+      </tr>`).join("")}</tbody></table>`;
+  } catch (e) { toast(e.message, "err"); }
+}
+
+async function addProvider() {
+  try {
+    const body = {
+      nama: $("#p-name").value,
+      provider: $("#p-provider").value,
+      model: $("#p-model").value,
+      apiKey: $("#p-key").value,
+      priority: Number($("#p-priority").value || 0),
+      isActive: $("#p-active").checked,
+    };
+    await api("/api/providers", { method: "POST", body: JSON.stringify(body) });
+    toast("Provider tersimpan");
+    ["#p-name","#p-model","#p-key"].forEach(s => $(s).value = "");
+    $("#p-active").checked = false;
+    loadProviders();
+  } catch (e) { toast(e.message, "err"); }
+}
+
+async function activate(id) {
+  try { await api(`/api/providers/${id}/activate`, { method: "POST" }); toast("Provider aktif"); loadProviders(); }
+  catch (e) { toast(e.message, "err"); }
+}
+
+async function editProvider(id) {
+  const list = await api("/api/providers");
+  const p = list.find(x => x.id === id); if (!p) return;
+  const nama = prompt("Nama:", p.nama) ?? p.nama;
+  const model = prompt("Model:", p.model) ?? p.model;
+  const apiKey = prompt("API Key (kosongkan untuk tidak mengubah):", "");
+  try {
+    await api(`/api/providers/${id}`, {
+      method: "PUT",
+      body: JSON.stringify({ nama, model, ...(apiKey ? { apiKey } : {}) }),
+    });
+    toast("Diperbarui"); loadProviders();
+  } catch (e) { toast(e.message, "err"); }
+}
+
+async function delProvider(id) {
+  if (!confirm("Hapus provider ini?")) return;
+  try { await api(`/api/providers/${id}`, { method: "DELETE" }); loadProviders(); }
+  catch (e) { toast(e.message, "err"); }
+}
+
+// ===================== LOGS =====================
+async function loadNumbersForLogs() {
+  try {
+    const rows = await api("/api/numbers-with-logs");
+    const sel = $("#lg-number");
+    sel.innerHTML = '<option value="">— pilih nomor —</option>' +
+      rows.map(r => `<option value="${r.waNumber}">${r.waNumber} (${r.count})</option>`).join("");
+  } catch (e) { toast(e.message, "err"); }
+}
+
+async function loadLogs() {
+  const waNumber = $("#lg-number").value;
+  if (!waNumber) { toast("Pilih nomor dulu", "err"); return; }
+  const from = $("#lg-from").value;
+  const to = $("#lg-to").value;
+  const qs = new URLSearchParams({ waNumber });
+  if (from) qs.set("from", from);
+  if (to) qs.set("to", to + "T23:59:59");
+  qs.set("limit", "500");
+  try {
+    const list = await api("/api/logs?" + qs.toString());
+    const wrap = $("#lg-chat");
+    if (list.length === 0) { wrap.innerHTML = '<div class="empty">Tidak ada pesan</div>'; return; }
+    // Tampilkan asc berdasar waktu
+    list.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+    wrap.innerHTML = list.map(l => `<div class="msg ${l.role}">
+      ${escapeHtml(l.content)}
+      <div class="when">${new Date(l.createdAt).toLocaleString("id-ID")}</div>
+    </div>`).join("");
+    wrap.scrollTop = wrap.scrollHeight;
+  } catch (e) { toast(e.message, "err"); }
+}
+
+// ===================== SETTINGS =====================
+async function loadSettings() {
+  try {
+    const s = await api("/api/settings");
+    $("#s-info").innerHTML = `
+      <div class="row">
+        <div><label>ADMIN_USERNAME</label><input value="${escapeHtml(s.adminUsername)}" disabled /></div>
+        <div><label>ADMIN_PASSWORD</label><input value="••••••••" disabled /></div>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <div><label>MEMORY_SUMMARIZE_EVERY</label><input value="${s.memorySummarizeEvery}" disabled /></div>
+        <div><label>MEMORY_RECENT_LIMIT</label><input value="${s.memoryRecentLimit}" disabled /></div>
+      </div>
+    `;
+    $("#s-waha").innerHTML = `
+      <div class="row">
+        <div><label>WAHA_URL</label><input value="${escapeHtml(s.wahaUrl)}" disabled /></div>
+        <div><label>WAHA_SESSION</label><input value="${escapeHtml(s.wahaSession)}" disabled /></div>
+      </div>
+    `;
+  } catch (e) { toast(e.message, "err"); }
+}
+
+function escapeHtml(s) {
+  return String(s ?? "").replace(/[&<>"']/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+// init
+tab("whitelist");
+</script>
+</body>
+</html>
