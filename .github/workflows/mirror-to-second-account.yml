@@ -9,8 +9,7 @@ on:
   delete:
   workflow_dispatch:
 
-# Mirror berjalan serial — bila ada push beruntun, hanya yang terakhir
-# yang benar-benar nge-mirror (cegah race & double-push ke remote target).
+# Hanya satu mirror berjalan dalam satu waktu — push beruntun di-serialize.
 concurrency:
   group: mirror-to-second-account
   cancel-in-progress: false
@@ -20,32 +19,37 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout source repository (full history + all refs)
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
       - name: Validate MIRROR_TOKEN secret
         env:
           MIRROR_TOKEN: ${{ secrets.MIRROR_TOKEN }}
         run: |
           if [ -z "${MIRROR_TOKEN}" ]; then
-            echo "::error::Secret MIRROR_TOKEN belum di-set di repo settings."
+            echo "::error::Secret MIRROR_TOKEN belum di-set."
             echo "Tambah di Settings → Secrets and variables → Actions → New repository secret."
+            echo "Nilainya: PAT (classic) atau fine-grained token dari akun rjmgcode dengan scope 'repo' / write akses ke repo rjmgcode/ngomongo."
             exit 1
           fi
+
+      # Pakai `git clone --mirror` (bare repo, tanpa working tree) —
+      # bukan actions/checkout — supaya semua ref (branches + tags) tersedia
+      # tanpa konflik "refusing to fetch into branch checked out".
+      - name: Clone source as bare mirror
+        env:
+          SOURCE_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git clone --mirror \
+            "https://x-access-token:${SOURCE_TOKEN}@github.com/${{ github.repository }}.git" \
+            source.git
 
       - name: Push mirror to second account
         env:
           MIRROR_TOKEN: ${{ secrets.MIRROR_TOKEN }}
+        working-directory: source.git
         run: |
-          # Fetch semua remote refs (branches + tags) supaya --mirror benar-benar lengkap.
-          git fetch origin --prune --tags '+refs/heads/*:refs/heads/*'
-
           git remote add mirror "https://x-access-token:${MIRROR_TOKEN}@github.com/rjmgcode/ngomongo.git"
 
-          # --mirror: push semua refs (branches, tags) + hapus yang tidak ada di source.
-          # --force: pastikan history yang sudah di-rewrite (rebase) tetap ter-sync.
+          # --mirror : push semua refs (branches + tags + sinkron deletion)
+          # --force  : sync history yang sudah di-rebase di source
           git push --mirror --force mirror
 
           echo "Mirror ke rjmgcode/ngomongo selesai."
