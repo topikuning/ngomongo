@@ -9,7 +9,6 @@ on:
   delete:
   workflow_dispatch:
 
-# Hanya satu mirror berjalan dalam satu waktu — push beruntun di-serialize.
 concurrency:
   group: mirror-to-second-account
   cancel-in-progress: false
@@ -25,14 +24,15 @@ jobs:
         run: |
           if [ -z "${MIRROR_TOKEN}" ]; then
             echo "::error::Secret MIRROR_TOKEN belum di-set."
-            echo "Tambah di Settings → Secrets and variables → Actions → New repository secret."
-            echo "Nilainya: PAT (classic) atau fine-grained token dari akun rjmgcode dengan scope 'repo' / write akses ke repo rjmgcode/ngomongo."
             exit 1
           fi
 
-      # Pakai `git clone --mirror` (bare repo, tanpa working tree) —
-      # bukan actions/checkout — supaya semua ref (branches + tags) tersedia
-      # tanpa konflik "refusing to fetch into branch checked out".
+      - name: Install git-filter-repo
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y git-filter-repo
+
+      # Clone --mirror = bare repo, semua refs ikut, tidak ada working tree.
       - name: Clone source as bare mirror
         env:
           SOURCE_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -41,15 +41,25 @@ jobs:
             "https://x-access-token:${SOURCE_TOKEN}@github.com/${{ github.repository }}.git" \
             source.git
 
+      # Hilangkan `.github/workflows/` dari SELURUH riwayat. Filter-repo
+      # menulis ulang setiap commit; commit-hash di repo mirror akan
+      # berbeda dari source. Konsekuensi yang diterima karena PAT
+      # MIRROR_TOKEN tidak memiliki scope `workflow` — alternatif Opsi A
+      # (tambah scope ke PAT) gagal di environment ini.
+      - name: Strip .github/workflows from history
+        working-directory: source.git
+        run: |
+          git filter-repo \
+            --path .github/workflows \
+            --invert-paths \
+            --force
+
       - name: Push mirror to second account
         env:
           MIRROR_TOKEN: ${{ secrets.MIRROR_TOKEN }}
         working-directory: source.git
         run: |
           git remote add mirror "https://x-access-token:${MIRROR_TOKEN}@github.com/rjmgcode/ngomongo.git"
-
-          # --mirror : push semua refs (branches + tags + sinkron deletion)
-          # --force  : sync history yang sudah di-rebase di source
+          # filter-repo otomatis menghapus remote origin, sehingga --mirror aman
           git push --mirror --force mirror
-
-          echo "Mirror ke rjmgcode/ngomongo selesai."
+          echo "Mirror ke rjmgcode/ngomongo selesai (workflow files di-strip)."
