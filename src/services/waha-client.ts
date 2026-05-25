@@ -37,6 +37,40 @@ export async function sendText(waNumber: string, text: string): Promise<void> {
   }
 }
 
+export interface WahaSessionInfo {
+  ok: boolean;
+  status: number;
+  sessionStatus?: string; // WORKING, SCAN_QR_CODE, FAILED, dst.
+  sessionName?: string;
+  url: string;
+  raw?: unknown;
+  error?: string;
+}
+
+export async function pingWahaSession(): Promise<WahaSessionInfo> {
+  const url = `${WAHA_URL}/api/sessions/${encodeURIComponent(WAHA_SESSION)}`;
+  try {
+    const res = await request(url, { method: "GET", headers: buildHeaders() });
+    const txt = await res.body.text();
+    let parsed: unknown = undefined;
+    try { parsed = JSON.parse(txt); } catch { /* non-json */ }
+    if (res.statusCode >= 400) {
+      return { ok: false, status: res.statusCode, url, error: txt.slice(0, 500), raw: parsed };
+    }
+    const p = parsed as { status?: string; name?: string } | undefined;
+    return {
+      ok: true,
+      status: res.statusCode,
+      sessionStatus: p?.status,
+      sessionName: p?.name,
+      url,
+      raw: parsed,
+    };
+  } catch (err) {
+    return { ok: false, status: 0, url, error: (err as Error).message };
+  }
+}
+
 export async function startTyping(waNumber: string): Promise<void> {
   try {
     await request(`${WAHA_URL}/api/startTyping`, {

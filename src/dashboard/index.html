@@ -196,6 +196,40 @@
     padding: 9px 16px; border-radius: 6px; cursor: pointer; font-weight: 600;
   }
   button.btn-danger-solid:hover { filter: brightness(1.1); }
+
+  /* ===== Health checks ===== */
+  .health-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
+  .health-card {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 16px;
+    display: flex; flex-direction: column; gap: 8px;
+  }
+  .health-card .top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .health-card .name { font-weight: 600; font-size: 14px; }
+  .health-card .desc { color: var(--muted); font-size: 12px; }
+  .health-card .msg {
+    font-size: 12px; color: var(--text); background: var(--bg);
+    border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px;
+    word-break: break-word; max-height: 110px; overflow: auto;
+    white-space: pre-wrap;
+  }
+  .health-card .row-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .health-card .latency { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .status-dot {
+    display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+    background: var(--muted); flex: 0 0 8px;
+  }
+  .status-dot.ok    { background: var(--accent); box-shadow: 0 0 0 3px rgba(37,211,102,0.15); }
+  .status-dot.error { background: var(--danger); box-shadow: 0 0 0 3px rgba(232,91,91,0.15); }
+  .status-dot.warn  { background: var(--warn);   box-shadow: 0 0 0 3px rgba(224,179,65,0.15); }
+  .status-dot.loading { background: var(--muted); animation: pulse 1s infinite; }
+  @keyframes pulse { 50% { opacity: 0.3; } }
+  .pill.health-ok    { background: rgba(37,211,102,0.15); color: var(--accent); }
+  .pill.health-error { background: rgba(232,91,91,0.15);  color: var(--danger); }
+  .pill.health-warn  { background: rgba(224,179,65,0.15); color: var(--warn); }
+  .pill.health-idle  { background: var(--panel); color: var(--muted); }
 </style>
 </head>
 <body>
@@ -206,6 +240,7 @@
     <button data-tab="roles">Role AI</button>
     <button data-tab="providers">AI Provider</button>
     <button data-tab="logs">Riwayat Chat</button>
+    <button data-tab="health">Tes Koneksi</button>
     <button data-tab="settings">Pengaturan</button>
   </nav>
 </header>
@@ -329,6 +364,24 @@
     </div>
   </section>
 
+  <!-- ================ HEALTH ================ -->
+  <section data-section="health" hidden>
+    <div class="card">
+      <h2>Tes Koneksi Service</h2>
+      <p class="muted" style="margin-top:-6px;font-size:13px">
+        Memastikan semua dependency yang bot pakai sedang sehat:
+        database (PostgreSQL), Redis, provider AI yang aktif, dan WAHA (WhatsApp gateway).
+        Klik <b>Tes Semua</b>, atau <b>Tes</b> per service.
+      </p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;align-items:center">
+        <button class="btn" onclick="runAllHealth()">Tes Semua</button>
+        <span id="h-overall" class="pill health-idle">belum dites</span>
+        <span id="h-overall-when" class="muted" style="font-size:12px"></span>
+      </div>
+      <div id="h-grid" class="health-grid"></div>
+    </div>
+  </section>
+
   <!-- ================ SETTINGS ================ -->
   <section data-section="settings" hidden>
     <div class="card">
@@ -361,6 +414,7 @@ function tab(name) {
   if (name === "roles") loadRoles();
   if (name === "providers") loadProviders();
   if (name === "logs") loadNumbersForLogs();
+  if (name === "health") initHealthGrid();
   if (name === "settings") loadSettings();
 }
 $$("nav button").forEach(b => b.addEventListener("click", () => tab(b.dataset.tab)));
@@ -863,6 +917,107 @@ async function loadLogs() {
     </div>`).join("");
     wrap.scrollTop = wrap.scrollHeight;
   } catch (e) { toast(e.message, "err"); }
+}
+
+// ===================== HEALTH CHECKS =====================
+const HEALTH_SERVICES = [
+  { id: "database", name: "PostgreSQL", desc: "Database (Prisma). Menyimpan whitelist, role, provider, log chat." },
+  { id: "redis",    name: "Redis",      desc: "Cache memori percakapan tiap nomor (recent + summary)." },
+  { id: "ai",       name: "AI Provider",desc: "Provider yang sedang aktif. Bot kirim prompt 'PONG' singkat untuk uji." },
+  { id: "waha",     name: "WAHA",       desc: "Gateway WhatsApp. Periksa session WORKING / butuh QR." },
+];
+
+function initHealthGrid() {
+  const grid = $("#h-grid");
+  grid.innerHTML = HEALTH_SERVICES.map(s => `
+    <div class="health-card" data-svc="${s.id}">
+      <div class="top">
+        <span style="display:flex;align-items:center;gap:8px;min-width:0">
+          <span class="status-dot" data-dot></span>
+          <span class="name">${escapeHtml(s.name)}</span>
+        </span>
+        <span class="pill health-idle" data-pill>belum dites</span>
+      </div>
+      <div class="desc">${escapeHtml(s.desc)}</div>
+      <div class="msg" data-msg style="display:none"></div>
+      <div class="row-foot">
+        <button class="btn-ghost" onclick="runOneHealth('${s.id}')">Tes</button>
+        <span class="latency" data-lat></span>
+      </div>
+    </div>
+  `).join("");
+}
+
+function renderHealthCard(svcId, result, { loading = false } = {}) {
+  const card = document.querySelector(`.health-card[data-svc="${svcId}"]`);
+  if (!card) return;
+  const dot = card.querySelector("[data-dot]");
+  const pill = card.querySelector("[data-pill]");
+  const msg = card.querySelector("[data-msg]");
+  const lat = card.querySelector("[data-lat]");
+
+  if (loading) {
+    dot.className = "status-dot loading";
+    pill.className = "pill health-idle";
+    pill.textContent = "menguji…";
+    lat.textContent = "";
+    msg.style.display = "none";
+    return;
+  }
+
+  const s = result.status; // ok | error | warn
+  dot.className = "status-dot " + s;
+  pill.className = "pill health-" + s;
+  pill.textContent = s === "ok" ? "OK" : s === "warn" ? "PERINGATAN" : "GAGAL";
+  lat.textContent = result.latencyMs + " ms";
+
+  const detailLines = [];
+  if (result.message) detailLines.push(result.message);
+  if (result.details) {
+    for (const [k, v] of Object.entries(result.details)) {
+      detailLines.push(`${k}: ${typeof v === "object" ? JSON.stringify(v) : v}`);
+    }
+  }
+  msg.textContent = detailLines.join("\n");
+  msg.style.display = detailLines.length ? "" : "none";
+}
+
+async function runOneHealth(svcId) {
+  renderHealthCard(svcId, null, { loading: true });
+  try {
+    const r = await api("/api/health/" + svcId);
+    renderHealthCard(svcId, r);
+  } catch (e) {
+    renderHealthCard(svcId, {
+      status: "error",
+      latencyMs: 0,
+      message: e.message,
+    });
+    toast(e.message, "err");
+  }
+}
+
+async function runAllHealth() {
+  HEALTH_SERVICES.forEach(s => renderHealthCard(s.id, null, { loading: true }));
+  const overallEl = $("#h-overall");
+  const whenEl = $("#h-overall-when");
+  overallEl.className = "pill health-idle";
+  overallEl.textContent = "menguji…";
+  whenEl.textContent = "";
+
+  try {
+    const j = await api("/api/health/all");
+    for (const r of j.results) renderHealthCard(r.service, r);
+    overallEl.className = "pill health-" + j.overall;
+    overallEl.textContent =
+      j.overall === "ok" ? "SEMUA SEHAT" :
+      j.overall === "warn" ? "ADA PERINGATAN" : "ADA YANG GAGAL";
+    whenEl.textContent = "terakhir: " + new Date(j.ts).toLocaleString("id-ID");
+  } catch (e) {
+    overallEl.className = "pill health-error";
+    overallEl.textContent = "GAGAL MEMANGGIL ENDPOINT";
+    toast(e.message, "err");
+  }
 }
 
 // ===================== SETTINGS =====================

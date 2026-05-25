@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 import { webhookRoutes } from "./routes/webhook.js";
 import { adminRoutes } from "./routes/admin.js";
 import { uploadRoutes } from "./routes/upload.js";
+import { healthRoutes } from "./routes/health.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -69,6 +70,7 @@ export async function buildApp() {
     scope.addHook("onRequest", app.basicAuth);
     await scope.register(adminRoutes);
     await scope.register(uploadRoutes);
+    await scope.register(healthRoutes);
 
     // Serve dashboard HTML
     scope.register(fastifyStatic, {
