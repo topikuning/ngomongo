@@ -1,4 +1,6 @@
-# Untuk development lokal — meniru setup Railway secara sederhana.
+# Setup development lokal — meniru topologi Railway.
+# Migrasi Prisma dijalankan oleh service `migrate` (one-shot), bukan oleh
+# backend, supaya sama persis dengan flow Railway (preDeployCommand).
 services:
   postgres:
     image: postgres:17-alpine
@@ -10,15 +12,25 @@ services:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
 
   redis:
     image: redis:7-alpine
     restart: unless-stopped
     ports:
       - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
 
   waha:
-    # Versi gratis WAHA — cukup untuk dev. Untuk production, pertimbangkan WAHA Plus.
+    # WAHA Core (gratis) — cocok untuk dev. Production boleh pakai WAHA Plus.
     image: devlikeapro/waha:latest
     restart: unless-stopped
     ports:
@@ -29,13 +41,28 @@ services:
     volumes:
       - waha-sessions:/app/.sessions
 
+  migrate:
+    build: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/ngomongo?schema=public
+    command: ["npx", "prisma", "migrate", "deploy"]
+    restart: "no"
+
   backend:
     build: .
     restart: unless-stopped
     depends_on:
-      - postgres
-      - redis
-      - waha
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      waha:
+        condition: service_started
     environment:
       DATABASE_URL: postgresql://postgres:postgres@postgres:5432/ngomongo?schema=public
       REDIS_URL: redis://redis:6379

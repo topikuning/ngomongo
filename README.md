@@ -2,6 +2,22 @@
 
 WhatsApp bot dengan otak AI yang bisa kamu kontrol penuh: pilih provider AI, atur kepribadian (role), kelola whitelist, dan ajari bot meniru style bahasa dari export chat WhatsApp. Seluruh sistem berjalan di Railway dalam satu project.
 
+## Versi teknologi (semua LTS / stable terbaru per Mei 2026)
+
+| Komponen          | Versi                              |
+| ----------------- | ---------------------------------- |
+| Node.js           | 24 LTS (Active LTS sejak Okt 2025) |
+| TypeScript        | 5.8.x                              |
+| Fastify           | 5.8.x                              |
+| LangChain.js      | 1.4.x (`@langchain/core` 1.1.x)    |
+| Prisma            | 6.19.x                             |
+| PostgreSQL        | 17                                 |
+| Redis             | 7                                  |
+| ioredis           | 5.10.x                             |
+| WAHA              | `devlikeapro/waha:latest`          |
+
+> Catatan: Prisma 7 sudah rilis namun memperkenalkan breaking change besar (driver-adapter wajib, `datasource.url` di-remove dari schema). Project ini sengaja stay di Prisma 6.19.x yang masih actively-maintained dan stable, supaya migrasi sederhana via `prisma migrate deploy` tetap bekerja tanpa refactor.
+
 ## Arsitektur
 
 ```
@@ -24,84 +40,98 @@ WhatsApp bot dengan otak AI yang bisa kamu kontrol penuh: pilih provider AI, atu
                               AI Provider (Google/OpenAI/Deepseek/Groq)
 ```
 
-- **Backend** — Node.js 22 + Fastify 5 + TypeScript + LangChain.js + Prisma 6
-- **WA Gateway** — WAHA (Docker, official `devlikeapro/waha`)
-- **Database** — PostgreSQL 17 (Railway native)
-- **Cache & memory buffer** — Redis 7 (Railway native)
-
 ## Fitur
 
 1. **Webhook WAHA** — terima pesan masuk, balas via WAHA REST API.
-2. **Whitelist nomor** — hanya nomor yang terdaftar yang dibalas; di luar itu pesan diabaikan total tanpa log.
-3. **Role AI dinamis** — system prompt disimpan di DB, bisa di-assign per nomor atau jadi default global.
-4. **Konteks awal & style bahasa per nomor** — upload export WA (.zip/.txt) → AI mengekstrak konteks dan meniru style bahasa kontak tersebut.
-5. **Provider AI swappable** — ganti Google/OpenAI/Deepseek/Groq tanpa redeploy, cukup update di dashboard.
-6. **Manajemen memori token-efisien** — Redis menyimpan ringkasan + 10 pesan terakhir; setiap 15 pesan baru auto-summarize.
-7. **Admin dashboard** — UI tunggal Bahasa Indonesia untuk semua pengaturan.
+2. **Whitelist nomor** — hanya nomor terdaftar yang dibalas; lainnya diabaikan total tanpa log.
+3. **Role AI dinamis** — system prompt di DB; assignable per-nomor atau default global.
+4. **Konteks awal & style bahasa per nomor** — upload export WA (.zip/.txt) → AI ekstrak konteks + style.
+5. **Provider AI swappable** — ganti Google/OpenAI/Deepseek/Groq tanpa redeploy lewat dashboard.
+6. **Manajemen memori token-efisien** — Redis: summary + 10 pesan terakhir; auto-summarize tiap 15 pesan.
+7. **Admin dashboard** — single-page Bahasa Indonesia, basic auth.
 
 ---
 
-## 1. Setup Railway (step-by-step)
+## 1. Setup Railway (step-by-step lengkap)
 
-### A. Buat project & sambungkan repo
+### A. Buat project & hubungkan repo
 
-1. Login ke [railway.app](https://railway.app), klik **New Project → Deploy from GitHub repo**, pilih repo ini.
-2. Railway otomatis mendeteksi `Dockerfile` dan `railway.toml`. Service backend pertama akan terbuat.
+1. Login ke [railway.com](https://railway.com) → **+ New Project → Deploy from GitHub repo** → pilih repo ini.
+2. Railway auto-detect `Dockerfile` + `railway.toml`. Service backend pertama terbuat (sebut saja **`backend`**).
+3. Tunggu build pertama — **akan gagal** karena `DATABASE_URL` & `REDIS_URL` belum ada. Itu normal; lanjut ke langkah berikutnya.
 
 ### B. Tambahkan PostgreSQL 17
 
-1. Di project Railway: **+ New → Database → Add PostgreSQL**.
-2. Setelah service `Postgres` jalan, buka tab **Variables** service backend, lalu **Add Reference Variable** → pilih variabel `DATABASE_URL` dari service Postgres.
-3. Railway akan menyuntikkan `DATABASE_URL` secara otomatis ke backend — tidak perlu di-set manual.
+1. Di canvas project: **+ Create → Database → Add PostgreSQL**.
+2. Tunggu sampai status hijau (Postgres siap).
+3. Klik service `backend` → tab **Variables** → **+ New Variable → Add Reference** → pilih service Postgres → variabel `DATABASE_URL`.
+4. Railway akan inject `DATABASE_URL` otomatis ke backend tiap deploy.
 
 ### C. Tambahkan Redis 7
 
-1. Di project Railway: **+ New → Database → Add Redis**.
-2. Sama seperti Postgres, tambahkan **Reference Variable** `REDIS_URL` ke service backend.
+1. **+ Create → Database → Add Redis**.
+2. Service `backend` → **Variables** → **Add Reference** → pilih service Redis → variabel `REDIS_URL`.
 
 ### D. Tambahkan service WAHA
 
-1. **+ New → Docker Image** lalu masukkan image:
+1. **+ Create → Docker Image** → isi:
    ```
    devlikeapro/waha:latest
    ```
-   (Untuk fitur lengkap, kamu boleh pakai `devlikeapro/waha-plus:latest` jika punya lisensi.)
-2. Di tab **Settings** service WAHA, buka **Networking → Generate Domain** agar WAHA punya URL publik (untuk QR scan login). Selain itu, gunakan **private network** untuk akses internal antar service.
-3. Di tab **Variables** service WAHA, set:
+   (Pakai `devlikeapro/waha-plus:latest` jika punya lisensi WAHA Plus.)
+2. Buka service WAHA → **Settings → Networking**:
+   - **Generate Domain** (URL publik) → diperlukan untuk login QR via browser.
+   - Tab **Private Networking** akan menampilkan hostname internal, mis. `waha.railway.internal`.
+3. Tab **Variables** service WAHA:
    ```
-   WHATSAPP_API_KEY=<api-key-bebas-buat-sendiri>
+   WHATSAPP_API_KEY=<api-key-acak-panjang-buat-sendiri>
    WHATSAPP_DEFAULT_ENGINE=WEBJS
    PORT=3000
    ```
-4. Tambahkan **Volume** ke path `/app/.sessions` agar session WhatsApp persisten antar restart.
+4. Tab **Settings → Volumes** → mount path `/app/.sessions` (untuk persistensi login WhatsApp).
 
-### E. Sambungkan backend ke WAHA
+### E. Set env variables backend
 
-Buka tab **Variables** service backend, tambahkan:
+Service `backend` → **Variables** → tambahkan satu per satu:
 
+| Variable          | Value                                              |
+| ----------------- | -------------------------------------------------- |
+| `WAHA_URL`        | `http://waha.railway.internal:3000` (private URL)  |
+| `WAHA_API_KEY`    | sama persis dengan `WHATSAPP_API_KEY` di service WAHA |
+| `WAHA_SESSION`    | `default`                                          |
+| `ADMIN_USERNAME`  | `admin` (atau bebas)                               |
+| `ADMIN_PASSWORD`  | password kuat (mis. random 24 karakter)            |
+| `NODE_ENV`        | `production`                                       |
+
+`DATABASE_URL` dan `REDIS_URL` sudah otomatis ter-inject dari langkah B & C.
+
+### F. Deploy backend (migrasi otomatis di preDeployCommand)
+
+`railway.toml` sudah mengkonfigurasi:
+
+```toml
+[deploy]
+preDeployCommand = ["npx prisma migrate deploy"]
+startCommand = "node dist/server.js"
+healthcheckPath = "/health"
+healthcheckTimeout = 300
 ```
-WAHA_URL=http://waha.railway.internal:3000     # gunakan URL internal Railway
-WAHA_API_KEY=<sama dengan WHATSAPP_API_KEY di service WAHA>
-WAHA_SESSION=default
-ADMIN_USERNAME=admin
-ADMIN_PASSWORD=<password kuat>
-PORT=3000
-NODE_ENV=production
-```
 
-> Cara cek URL internal Railway: di service WAHA → Settings → Networking → "Private Networking" → copy hostname (`<service-name>.railway.internal`).
+- `preDeployCommand` dijalankan Railway **sebelum** container mulai menerima trafik — di sinilah `prisma migrate deploy` berjalan.
+- `startCommand` hanya menjalankan server → log `[boot] ngomongo ready · listening on 0.0.0.0:3000` muncul cepat → `/health` lulus dalam jendela 300 detik.
 
-### F. Deploy & migrasi DB
+> ⚠️ JANGAN menggabungkan `prisma migrate deploy` ke dalam start command / `CMD` Docker. Jika digabung, migrasi memakan window healthcheck (default 30 detik) → Railway menganggap deploy gagal → container di-restart loop. Versi sebelum perbaikan ini punya bug tersebut; sekarang sudah dipisah.
 
-`Dockerfile` sudah menjalankan `npx prisma migrate deploy` saat container start. Push commit → Railway auto-deploy backend. Setelah deploy sukses, buka URL backend → kamu akan diminta basic auth (gunakan `ADMIN_USERNAME` / `ADMIN_PASSWORD`).
+Setelah env lengkap, klik **Deploy** ulang di service backend (atau push commit baru). Tunggu sampai status hijau. Buka URL publik backend → akan diminta basic auth → login dengan `ADMIN_USERNAME` / `ADMIN_PASSWORD` → dashboard muncul.
 
-### G. Set webhook WAHA → backend
+### G. Hubungkan WAHA → backend webhook
 
-1. Buka URL publik service WAHA (yang kamu generate di langkah D.2).
-2. Login WhatsApp via QR (gunakan endpoint Swagger UI WAHA atau API `/api/sessions/start`).
-3. Buat / update session `default` dengan webhook URL ke backend:
+1. Buka URL publik WAHA (langkah D.2) → halaman **Swagger UI** WAHA muncul.
+2. Klik tombol **Authorize** di pojok kanan → masukkan `WAHA_API_KEY`.
+3. Buat / start session `default` dengan webhook ke backend:
+
    ```bash
-   curl -X POST "<WAHA_PUBLIC_URL>/api/sessions/default" \
+   curl -X POST "<WAHA_PUBLIC_URL>/api/sessions" \
      -H "X-Api-Key: <WAHA_API_KEY>" \
      -H "Content-Type: application/json" \
      -d '{
@@ -117,26 +147,41 @@ NODE_ENV=production
        }
      }'
    ```
-4. Setelah QR di-scan dari HP, WhatsApp akan ter-link dan setiap pesan masuk akan dikirim ke `/webhook` backend.
+
+   > Jika session `default` sudah ada, gunakan `PUT /api/sessions/default` dengan body yang sama untuk update webhook.
+
+4. Ambil QR code:
+   ```bash
+   curl "<WAHA_PUBLIC_URL>/api/default/auth/qr?format=image" \
+     -H "X-Api-Key: <WAHA_API_KEY>" -o qr.png
+   ```
+   Buka `qr.png` → scan dari WhatsApp HP (**Setelan → Perangkat tertaut → Tautkan perangkat**).
+
+5. Cek status session sudah `WORKING`:
+   ```bash
+   curl "<WAHA_PUBLIC_URL>/api/sessions/default" -H "X-Api-Key: <WAHA_API_KEY>"
+   ```
+
+Sejak detik ini, pesan masuk ke nomor WhatsApp yang tertaut akan diteruskan ke `/webhook` backend.
 
 ---
 
-## 2. Konfigurasi env variables
+## 2. Konfigurasi env variables (.env.example)
 
 | Variable                  | Wajib | Keterangan                                                      |
 | ------------------------- | :---: | --------------------------------------------------------------- |
-| `DATABASE_URL`            | ✅    | Otomatis dari service Postgres Railway                         |
-| `REDIS_URL`               | ✅    | Otomatis dari service Redis Railway                            |
-| `WAHA_URL`                | ✅    | URL internal WAHA (mis. `http://waha.railway.internal:3000`)   |
-| `WAHA_API_KEY`            | ✅    | Sama dengan `WHATSAPP_API_KEY` di service WAHA                 |
+| `DATABASE_URL`            | ✅    | Otomatis dari service Postgres Railway                          |
+| `REDIS_URL`               | ✅    | Otomatis dari service Redis Railway                             |
+| `WAHA_URL`                | ✅    | URL internal WAHA, mis. `http://waha.railway.internal:3000`     |
+| `WAHA_API_KEY`            | ✅    | Sama dengan `WHATSAPP_API_KEY` di service WAHA                  |
 | `WAHA_SESSION`            |       | Nama session WhatsApp (default `default`)                       |
 | `ADMIN_USERNAME`          | ✅    | Username dashboard admin                                        |
 | `ADMIN_PASSWORD`          | ✅    | Password dashboard admin                                        |
 | `PORT`                    |       | Default `3000`                                                  |
+| `NODE_ENV`                |       | `production` di Railway                                         |
 | `MEMORY_SUMMARIZE_EVERY`  |       | Berapa pesan baru sebelum auto-summarize (default `15`)         |
-| `MEMORY_RECENT_LIMIT`     |       | Berapa pesan terakhir yang ditahan di buffer (default `10`)     |
-
-Salin dari `.env.example`.
+| `MEMORY_RECENT_LIMIT`     |       | Berapa pesan terakhir di buffer (default `10`)                  |
+| `LOG_LEVEL`               |       | `info` (default), atau `debug`/`warn`                           |
 
 ---
 
@@ -146,20 +191,22 @@ Salin dari `.env.example`.
 cp .env.example .env
 # Edit .env: ADMIN_PASSWORD, WAHA_API_KEY, dll.
 
-docker compose up -d
+docker compose up -d --build
 ```
 
-Service yang berjalan:
+Service yang berjalan & port-nya:
 
-- Backend → http://localhost:3000 (dashboard: http://localhost:3000/dashboard/)
+- Backend → http://localhost:3000 → dashboard di http://localhost:3000/dashboard/
 - WAHA → http://localhost:3001 (Swagger UI: http://localhost:3001/)
-- Postgres → localhost:5432
-- Redis → localhost:6379
+- Postgres → `localhost:5432` (user/pass: `postgres`/`postgres`, db: `ngomongo`)
+- Redis → `localhost:6379`
+
+`docker-compose.yml` punya service `migrate` one-shot yang menjalankan `npx prisma migrate deploy` sekali sebelum backend start (meniru `preDeployCommand` Railway).
 
 ### Login WhatsApp di WAHA lokal
 
 ```bash
-curl -X POST "http://localhost:3001/api/sessions/default" \
+curl -X POST "http://localhost:3001/api/sessions" \
   -H "X-Api-Key: $WAHA_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
@@ -171,19 +218,29 @@ curl -X POST "http://localhost:3001/api/sessions/default" \
       ]
     }
   }'
+
+# Ambil QR
+curl "http://localhost:3001/api/default/auth/qr?format=image" \
+  -H "X-Api-Key: $WAHA_API_KEY" -o qr.png && open qr.png
 ```
 
-Lalu scan QR code dari endpoint `/api/sessions/default/auth/qr` (atau via Swagger UI).
-
-### Development mode (tanpa Docker untuk backend)
+### Development mode (backend tanpa Docker)
 
 ```bash
+# Jalankan dependency saja
+docker compose up -d postgres redis waha
+
 npm install
-npx prisma migrate dev
-npm run dev
+npx prisma migrate dev   # buat schema & migration di DB dev
+npm run dev              # hot-reload via tsx
 ```
 
-Pastikan Postgres, Redis, dan WAHA tetap jalan via `docker compose up -d postgres redis waha`.
+Pastikan `.env` lokal punya:
+```
+DATABASE_URL=postgresql://postgres:postgres@localhost:5432/ngomongo?schema=public
+REDIS_URL=redis://localhost:6379
+WAHA_URL=http://localhost:3001
+```
 
 ---
 
@@ -193,49 +250,57 @@ Buka `https://<backend-domain>/dashboard/`, login dengan kredensial admin.
 
 ### Langkah pertama setelah deploy
 
-1. **AI Provider** — tambahkan minimal 1 provider, isi API key, centang **Aktifkan sekarang**.
-2. **Role AI** — buat 1 role dan tandai sebagai **default global**. Contoh system prompt:
+1. **AI Provider** — tambah minimal 1 provider, isi API key, centang **Aktifkan sekarang**.
+
+   Contoh konfigurasi yang umum:
+   | Provider   | Model contoh                                |
+   | ---------- | ------------------------------------------- |
+   | `google`   | `gemini-2.0-flash`, `gemini-2.5-flash`      |
+   | `openai`   | `gpt-4o-mini`, `gpt-4.1-mini`               |
+   | `deepseek` | `deepseek-chat`, `deepseek-reasoner`        |
+   | `groq`     | `llama-3.3-70b-versatile`, `openai/gpt-oss-20b` |
+
+2. **Role AI** — buat 1 role dan tandai **default global**. Contoh:
    ```
-   Kamu adalah asisten WhatsApp yang ramah, jawab dalam Bahasa Indonesia,
-   ringkas (maks 2 paragraf), dan WAJIB meniru style bahasa lawan bicara.
+   Kamu adalah asisten WhatsApp yang ramah. Jawab dalam Bahasa Indonesia,
+   ringkas (maks 2 paragraf), dan WAJIB meniru style bahasa lawan bicara
+   (formal/informal, singkatan, emoji) sesuai konteks yang diberikan.
    ```
-3. **Whitelist Nomor** — tambahkan nomor pertama (format `6281234567890`).
-4. Kirim pesan dari nomor tersebut ke nomor WhatsApp yang terhubung WAHA — bot akan membalas.
+3. **Whitelist Nomor** — tambah nomor (format internasional tanpa `+`, mis. `6281234567890`).
+4. Kirim pesan dari nomor tersebut → bot membalas.
 
 ### Fitur upload export chat WhatsApp
 
-Di halaman **Whitelist Nomor**, klik tombol **Upload Export** pada baris nomor yang ingin diberi konteks dari riwayat chat.
+**Dapatkan file export dari HP:**
 
-**Cara mendapatkan file export:**
+1. Buka WhatsApp HP → buka chat dengan kontak target.
+2. Titik tiga → **More → Export chat → Without media**.
+3. Bagikan file `.txt` (atau `.zip` berisi `.txt`) ke email / cloud → pindahkan ke komputer.
 
-1. Di WhatsApp HP, buka chat dengan kontak tersebut → titik tiga → **More → Export chat → Without media**.
-2. WhatsApp menghasilkan file `.txt` (atau `.zip` berisi `.txt`).
-3. Kirim file tersebut ke email / pindahkan ke komputer.
+**Upload via dashboard:**
 
-**Cara upload:**
-
-1. Buka dashboard → tab **Whitelist Nomor**.
-2. Pada baris nomor target, klik **Upload Export** → pilih file `.txt` atau `.zip`.
+1. Dashboard → tab **Whitelist Nomor**.
+2. Pada baris nomor target → klik **Upload Export** → pilih file `.txt`/`.zip`.
 3. Sistem akan:
    - Parse semua baris pesan format `[DD/MM/YY, HH:MM:SS] Nama: isi`
    - Kirim sample ke AI provider aktif untuk ekstraksi
-   - Hasilnya disimpan sebagai `initial_summary` di tabel `memory_snapshots`
-4. Setelah selesai, status **Initial Summary** di tabel berubah jadi `siap` (hijau).
-5. Setiap pesan baru dari nomor itu akan menggunakan summary ini — AI akan meniru style bahasa yang terdeteksi.
+   - Simpan `initial_summary` (KONTEKS + STYLE BAHASA) di tabel `memory_snapshots`
+4. Status **Initial Summary** berubah ke `siap` (hijau).
+5. Setiap pesan baru dari nomor itu akan memakai summary ini — AI meniru style bahasa.
 
-> Jika kamu hanya punya teks deskripsi (tidak punya file export), isi field **Konteks Awal (teks manual)** lalu klik **Bangun dari Teks** untuk menghasilkan initial summary versi minimal.
+Jika hanya punya teks deskripsi (tanpa file export), isi **Konteks Awal (teks manual)** lalu klik **Bangun dari Teks**.
 
 ### Ganti AI provider tanpa redeploy
 
-Buka tab **AI Provider** → klik **Aktifkan** pada provider lain. Cache di-invalidate otomatis, request berikutnya pakai provider baru.
+Tab **AI Provider** → klik **Aktifkan** pada provider lain. Cache di-invalidate, request berikutnya pakai provider baru.
 
 ### Ganti kepribadian AI per nomor
 
-Edit nomor di tab **Whitelist Nomor** → ubah Role ID ke role yang diinginkan. Jika kosong, akan jatuh ke default global.
+Tab **Whitelist Nomor** → **Edit** pada baris nomor → ubah Role ID. Kosong = pakai default global.
 
-### Melihat riwayat chat
+### Lihat riwayat chat
 
-Tab **Riwayat Chat** → pilih nomor → opsional filter tanggal → klik **Tampilkan**.
+Tab **Riwayat Chat** → pilih nomor → opsional filter tanggal → **Tampilkan**.
 
 ---
 
@@ -262,25 +327,44 @@ src/
   app.ts              — Fastify setup + routing
   server.ts           — entry point
 prisma/
-  schema.prisma       — definisi schema DB
-Dockerfile
-railway.toml
-docker-compose.yml
+  schema.prisma
+  migrations/         — SQL migrations
+Dockerfile            — multi-stage build, Node 24 Alpine
+railway.toml          — preDeployCommand untuk migrasi, healthcheck 300s
+docker-compose.yml    — Postgres + Redis + WAHA + migrate (one-shot) + backend
 .env.example
+.npmrc                — legacy-peer-deps (kebutuhan LangChain ecosystem)
 ```
 
 ---
 
 ## Catatan keamanan
 
-- Gunakan `ADMIN_PASSWORD` yang kuat — basic auth adalah satu-satunya proteksi dashboard.
-- Jangan commit `.env`. Gunakan tab Variables di Railway.
-- `WAHA_API_KEY` melindungi service WAHA dari akses publik — set value acak panjang dan rahasiakan.
-- API keys provider AI disimpan di DB. Jika kamu rotate key, update via dashboard.
+- Pakai `ADMIN_PASSWORD` yang kuat — basic auth adalah satu-satunya proteksi dashboard.
+- Jangan commit `.env`. Pakai tab Variables di Railway.
+- `WAHA_API_KEY` melindungi service WAHA dari akses publik — set value acak panjang.
+- API keys provider AI disimpan di DB. Rotate via dashboard kapan saja.
 
 ## Troubleshooting
 
-- **Backend tidak mau balas pesan** → cek log Railway backend, pastikan nomor sudah di-whitelist dan minimal 1 provider AI aktif.
-- **WAHA tidak kirim webhook** → buka Swagger UI WAHA → `GET /api/sessions/default` → cek field `config.webhooks` sudah berisi URL `/webhook` backend yang benar.
-- **Prisma migration error** → cek `DATABASE_URL` valid. Jalankan `npx prisma migrate deploy` secara manual via Railway shell jika perlu.
-- **Initial summary gagal dibuat** → pastikan provider AI aktif mendukung input panjang dan API key valid.
+### Deploy Railway gagal di healthcheck
+- Pastikan `railway.toml` punya `preDeployCommand = ["npx prisma migrate deploy"]` dan `healthcheckTimeout = 300`.
+- Pastikan `Dockerfile` `CMD` hanya `["node","dist/server.js"]` (TIDAK ada `prisma migrate deploy` di sini).
+- Lihat **Deploy Logs** Railway — log boot `[boot] ngomongo starting · node v24.x ...` harus muncul cepat.
+
+### Backend tidak balas pesan
+- Cek log Railway backend — apakah request ke `/webhook` masuk?
+- Pastikan nomor sudah di-whitelist di dashboard (case-insensitive normalization: digit only).
+- Pastikan minimal 1 provider AI berstatus `AKTIF`.
+
+### WAHA tidak kirim webhook
+- Swagger UI WAHA → `GET /api/sessions/default` → cek `config.webhooks[0].url` benar.
+- Cek `WAHA_URL` di backend pakai URL **private** Railway (`*.railway.internal`).
+
+### Migrasi Prisma error saat preDeploy
+- Cek `DATABASE_URL` valid (sudah ter-reference dari service Postgres).
+- Buka tab **Logs** service backend di section "Pre-deploy" → lihat error spesifik.
+- Manual rerun: klik **⋯** pada deployment → **Redeploy**.
+
+### `npm install` di lokal error peer dependency
+- Sudah di-handle oleh `.npmrc` (`legacy-peer-deps=true`) karena ekosistem LangChain.js belum sepenuhnya rapi soal peerDeps.

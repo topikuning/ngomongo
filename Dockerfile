@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 
-FROM node:22-alpine AS builder
+FROM node:24-alpine AS builder
 WORKDIR /app
 
 # OpenSSL diperlukan oleh Prisma
@@ -15,7 +15,7 @@ COPY src ./src
 RUN npm run build
 
 # ============ runtime ============
-FROM node:22-alpine AS runner
+FROM node:24-alpine AS runner
 WORKDIR /app
 
 RUN apk add --no-cache openssl tini
@@ -32,5 +32,9 @@ COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
 
 EXPOSE 3000
 
+# Migrasi Prisma TIDAK dijalankan di sini. Di Railway, migrasi dipanggil
+# lewat `preDeployCommand` di railway.toml supaya tidak memotong jendela
+# healthcheck. Untuk docker-compose lokal, migrasi dipanggil oleh service
+# `migrate` sekali jalan (lihat docker-compose.yml).
 ENTRYPOINT ["/sbin/tini","--"]
-CMD ["sh","-c","npx prisma migrate deploy && node dist/server.js"]
+CMD ["node","dist/server.js"]

@@ -14,13 +14,24 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 export async function buildApp() {
+  // Di production gunakan logger JSON default; pino-pretty hanya jika
+  // tersedia secara opsional (dev). Hindari hard-require pino-pretty supaya
+  // bundle production tetap kecil dan tidak crash saat tidak terpasang.
+  let prettyTransport: { target: string; options: object } | undefined;
+  if (process.env.NODE_ENV !== "production") {
+    try {
+      const mod = "pino-pretty";
+      await import(/* @vite-ignore */ mod);
+      prettyTransport = { target: "pino-pretty", options: { colorize: true } };
+    } catch {
+      // pino-pretty tidak terpasang — pakai logger JSON default
+    }
+  }
+
   const app = Fastify({
     logger: {
       level: process.env.LOG_LEVEL || "info",
-      transport:
-        process.env.NODE_ENV === "production"
-          ? undefined
-          : { target: "pino-pretty", options: { colorize: true } },
+      transport: prettyTransport,
     },
     bodyLimit: 30 * 1024 * 1024, // 30 MB untuk export chat WA
   });
