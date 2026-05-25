@@ -4,6 +4,7 @@ import { getMemory, appendAndMaybeSummarize, buildMessagesForLLM } from "../serv
 import { getChatModelForNumber } from "../services/ai-router.js";
 import { sendText, resolveLidToPhone } from "../services/waha-client.js";
 import { recordWebhookEvent } from "../services/webhook-log.js";
+import { redis } from "../lib/redis.js";
 
 type AnyObj = Record<string, unknown>;
 function obj(v: unknown): AnyObj { return (v && typeof v === "object") ? v as AnyObj : {}; }
@@ -88,6 +89,7 @@ function extractRealSenderPhoneJid(body: AnyObj): string | null {
 //     pesan langsung di top-level.
 function extractMessage(body: unknown): {
   event: string | null;
+  messageId: string | null;
   from: string | null;        // JID asli yang dilaporkan WAHA (mungkin @lid)
   realPhoneJid: string | null; // JID nomor telepon asli kalau bisa diekstrak
   text: string;
@@ -99,6 +101,12 @@ function extractMessage(body: unknown): {
   const p = obj(b.payload ?? b.data ?? b);
   const data = obj(p._data);
   const fromField = p.from;
+  // Message ID unik per pesan WhatsApp — sama di event `message` dan
+  // `message.any`. Ini kunci untuk dedup.
+  const messageId =
+    str(p.id) ??
+    str(obj(data.key).id) ??
+    null;
   const fromStr =
     str(fromField) ??
     str(obj(fromField).id) ??
@@ -121,7 +129,29 @@ function extractMessage(body: unknown): {
     str(p.notifyName) ??
     str(obj(fromField).name);
   const realPhoneJid = extractRealSenderPhoneJid(b);
-  return { event, from: fromStr, realPhoneJid, text, fromMe, notifyName };
+  return { event, messageId, from: fromStr, realPhoneJid, text, fromMe, notifyName };
+}
+
+// Dedup berbasis Redis SETNX. Setiap msg.id WhatsApp diberi flag
+// dengan TTL 5 menit; event kedua dengan id sama akan kalah race dan
+// di-skip. Ini perlu karena WAHA mengirim BANYAK event untuk pesan
+// yang sama tergantung WHATSAPP_HOOK_EVENTS user:
+//   - "message"     → pesan baru
+//   - "message.any" → SEMUA pesan (termasuk yang sama dengan di atas)
+//   - "messages.upsert" (baileys-style)
+// Daripada minta user merapikan config WAHA, dedup di sisi kita lebih
+// robust. TTL 5 menit cukup karena duplikat datang dalam hitungan ms.
+const DEDUP_TTL_SECONDS = 300;
+
+async function claimMessage(messageId: string): Promise<boolean> {
+  try {
+    const r = await redis.set(`processed:msg:${messageId}`, "1", "EX", DEDUP_TTL_SECONDS, "NX");
+    return r === "OK";
+  } catch {
+    // Kalau Redis down, lebih baik biarkan pesan lewat (false-positive
+    // jawab dua kali) daripada drop semua pesan.
+    return true;
+  }
 }
 
 // Daftar event WAHA yang kita anggap "pesan masuk yang perlu dijawab".
@@ -137,7 +167,7 @@ export async function webhookRoutes(app: FastifyInstance) {
   app.post("/webhook", async (req: FastifyRequest, reply) => {
     const remoteIp = req.ip;
     const extracted = extractMessage(req.body);
-    const { event, from, realPhoneJid, text, fromMe, notifyName } = extracted;
+    const { event, messageId, from, realPhoneJid, text, fromMe, notifyName } = extracted;
 
     const record = (decision: string) =>
       recordWebhookEvent({ remoteIp, decision, extracted, raw: req.body });
@@ -148,6 +178,17 @@ export async function webhookRoutes(app: FastifyInstance) {
     if (event && !MESSAGE_EVENTS.has(event)) {
       record(`skip: event=${event} (bukan pesan masuk baru)`);
       return reply.code(200).send({ ok: true });
+    }
+
+    // Dedup berdasarkan message.id. Tanpa ini, WAHA yang mengirim
+    // `message` DAN `message.any` untuk pesan yang sama akan bikin bot
+    // membalas dua kali (atau lebih).
+    if (messageId) {
+      const fresh = await claimMessage(messageId);
+      if (!fresh) {
+        record(`skip: duplikat (msg.id=${messageId} sudah diproses ≤${DEDUP_TTL_SECONDS}s lalu — WAHA mengirim event yang sama dua kali, biasanya kombinasi 'message' + 'message.any')`);
+        return reply.code(200).send({ ok: true });
+      }
     }
 
     if (fromMe) {

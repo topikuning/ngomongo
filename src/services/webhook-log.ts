@@ -11,6 +11,7 @@ export interface WebhookLogEntry {
   decision: string;
   extracted: {
     event?: string | null;
+    messageId?: string | null;
     from: string | null;
     realPhoneJid?: string | null;
     text: string;
