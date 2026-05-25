@@ -3,6 +3,7 @@ import { prisma } from "../lib/prisma.js";
 import { invalidateProviderCache } from "../services/ai-router.js";
 import { normalizeNumber } from "../services/whitelist.js";
 import { resetMemory } from "../services/memory.js";
+import { getWebhookLog, clearWebhookLog } from "../services/webhook-log.js";
 
 export async function adminRoutes(app: FastifyInstance) {
   // ============ AI PROVIDERS ============
@@ -279,6 +280,16 @@ export async function adminRoutes(app: FastifyInstance) {
       orderBy: { createdAt: "desc" },
     });
     return snap || { summary: null };
+  });
+
+  // ============ WEBHOOK DIAGNOSTIK ============
+  app.get("/api/webhook-log", async () => {
+    return { entries: getWebhookLog() };
+  });
+
+  app.delete("/api/webhook-log", async () => {
+    clearWebhookLog();
+    return { ok: true };
   });
 
   // ============ PENGATURAN ============

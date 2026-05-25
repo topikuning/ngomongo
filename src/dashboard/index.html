@@ -197,6 +197,37 @@
   }
   button.btn-danger-solid:hover { filter: brightness(1.1); }
 
+  /* ===== Webhook log ===== */
+  .wh-list { display: flex; flex-direction: column; gap: 8px; }
+  .wh-entry {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--muted);
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-size: 13px;
+  }
+  .wh-entry.processed { border-left-color: var(--accent); }
+  .wh-entry.skip      { border-left-color: var(--warn); }
+  .wh-entry.error     { border-left-color: var(--danger); }
+  .wh-entry .wh-head {
+    display: flex; align-items: center; gap: 10px;
+    font-variant-numeric: tabular-nums;
+    margin-bottom: 4px;
+  }
+  .wh-entry .wh-when { color: var(--muted); font-size: 12px; min-width: 165px; }
+  .wh-entry .wh-decision { font-weight: 600; flex: 1; word-break: break-word; }
+  .wh-entry .wh-meta { color: var(--muted); font-size: 12px; margin-top: 4px; }
+  .wh-entry pre {
+    margin-top: 8px;
+    background: var(--bg); padding: 10px 12px; border-radius: 6px;
+    font-size: 12px; max-height: 240px; overflow: auto;
+  }
+  .wh-empty {
+    color: var(--muted); padding: 20px; text-align: center;
+    font-size: 14px; line-height: 1.55;
+  }
+
   /* ===== Health checks ===== */
   .health-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; }
   .health-card {
@@ -398,6 +429,22 @@
       </div>
       <div id="h-grid" class="health-grid"></div>
     </div>
+
+    <div class="card">
+      <h2>Webhook Masuk dari WAHA (50 terakhir)</h2>
+      <p class="muted" style="margin-top:-6px;font-size:14px;line-height:1.55">
+        Daftar event yang benar-benar diterima bot di endpoint <code>POST /webhook</code>.
+        Kalau kosong saat kamu kirim pesan ke nomor bot, berarti WAHA <b>tidak mengirim</b>
+        event ke sini — periksa env <code>WHATSAPP_HOOK_URL</code> / <code>WEBHOOK_URL</code>
+        di service WAHA dan pastikan menunjuk ke <code id="wh-expected"></code>.
+      </p>
+      <div style="display:flex;gap:10px;align-items:center;margin-bottom:14px">
+        <button class="btn" onclick="loadWebhookLog()">Refresh</button>
+        <button class="btn-ghost" onclick="clearWebhookLog()">Bersihkan Log</button>
+        <span id="wh-count" class="muted" style="font-size:13px"></span>
+      </div>
+      <div id="wh-list" class="wh-list"></div>
+    </div>
   </section>
 
   <!-- ================ SETTINGS ================ -->
@@ -432,7 +479,7 @@ function tab(name) {
   if (name === "roles") loadRoles();
   if (name === "providers") loadProviders();
   if (name === "logs") loadNumbersForLogs();
-  if (name === "health") initHealthGrid();
+  if (name === "health") { initHealthGrid(); loadWebhookLog(); }
   if (name === "settings") loadSettings();
 }
 $$("nav button").forEach(b => b.addEventListener("click", () => tab(b.dataset.tab)));
@@ -1083,6 +1130,74 @@ async function runAllHealth() {
     overallEl.textContent = "GAGAL MEMANGGIL ENDPOINT";
     toast(e.message, "err");
   }
+}
+
+// ===================== WEBHOOK LOG =====================
+function decisionClass(decision) {
+  if (decision.startsWith("processed")) return "processed";
+  if (decision.startsWith("error"))     return "error";
+  return "skip";
+}
+
+async function loadWebhookLog() {
+  // Tampilkan URL yang diharapkan di hint
+  const expected = $("#wh-expected");
+  if (expected) expected.textContent = location.origin + "/webhook";
+
+  try {
+    const j = await api("/api/webhook-log");
+    const list = j.entries || [];
+    $("#wh-count").textContent = list.length === 0
+      ? "Belum ada event."
+      : `Menampilkan ${list.length} event (terbaru di atas).`;
+    const wrap = $("#wh-list");
+    if (list.length === 0) {
+      wrap.innerHTML = `<div class="wh-empty">
+        Belum ada webhook yang masuk sejak server start.<br>
+        Kirim pesan WA ke nomor bot — kalau setelah refresh masih kosong, WAHA belum mengarah ke sini.
+      </div>`;
+      return;
+    }
+    wrap.innerHTML = list.map(renderWhEntry).join("");
+  } catch (e) { toast(e.message, "err"); }
+}
+
+function renderWhEntry(e) {
+  const cls = decisionClass(e.decision);
+  const when = new Date(e.at).toLocaleString("id-ID", { hour12: false });
+  const ex = e.extracted || {};
+  return `<div class="wh-entry ${cls}">
+    <div class="wh-head">
+      <span class="wh-when">${escapeHtml(when)}</span>
+      <span class="wh-decision">${escapeHtml(e.decision)}</span>
+    </div>
+    <div class="wh-meta">
+      from: <code>${escapeHtml(ex.from || "—")}</code>
+      · fromMe: ${ex.fromMe ? "true" : "false"}
+      ${ex.notifyName ? `· notifyName: ${escapeHtml(ex.notifyName)}` : ""}
+      ${e.remoteIp ? `· ip: ${escapeHtml(e.remoteIp)}` : ""}
+    </div>
+    ${ex.text ? `<div class="wh-meta">text: <code>${escapeHtml(ex.text.slice(0, 200))}${ex.text.length > 200 ? "…" : ""}</code></div>` : ""}
+    <details>
+      <summary class="muted" style="font-size:12px;margin-top:6px;cursor:pointer">Payload mentah</summary>
+      <pre>${escapeHtml(JSON.stringify(e.raw, null, 2))}</pre>
+    </details>
+  </div>`;
+}
+
+async function clearWebhookLog() {
+  const ok = await showConfirmModal({
+    title: "Bersihkan log webhook",
+    message: "Hapus semua entri di ring buffer in-memory. Log baru akan terisi lagi saat ada event masuk.",
+    confirmLabel: "Bersihkan",
+    danger: false,
+  });
+  if (!ok) return;
+  try {
+    await api("/api/webhook-log", { method: "DELETE" });
+    toast("Log dibersihkan");
+    loadWebhookLog();
+  } catch (e) { toast(e.message, "err"); }
 }
 
 // ===================== SETTINGS =====================
