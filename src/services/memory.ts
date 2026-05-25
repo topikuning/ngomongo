@@ -91,8 +91,19 @@ export function buildMessagesForLLM(
   const parts: string[] = [systemPrompt.trim()];
   if (memory.summary) {
     parts.push(
-      "\n\nBerikut konteks dan style bahasa orang yang sedang kamu ajak bicara — WAJIB tiru style bahasanya saat membalas:\n" +
-        memory.summary,
+      "\n\n---\n" +
+        "Konteks tentang lawan bicaramu (untuk PEMAHAMAN, bukan untuk ditiru mentah-mentah):\n" +
+        memory.summary +
+        "\n\n" +
+        "PEDOMAN ADAPTASI STYLE — penting, baca dengan cermat:\n" +
+        "1. TIRU dari lawan bicara: tone (santai/formal/playful), tingkat keformalan bahasa, " +
+        "panjang pesan tipikal, penggunaan emoji, slang/singkatan umum yang dia pakai " +
+        "(mis. 'gw', 'lo', 'bgt', 'btw').\n" +
+        "2. JANGAN TIRU panggilan/sebutan yang dia pakai UNTUKMU (mis. 'nak', 'sayang', " +
+        "'kak', 'pak', 'bro', 'mas', 'mbak'). Itu adalah panggilan UNTUKMU, BUKAN " +
+        "panggilan yang harus kamu balikkan ke dia. Pakai panggilan yang sesuai dengan " +
+        "PERAN-mu yang sudah ditetapkan di paling atas.\n" +
+        "3. Kalau ragu soal panggilan: prioritaskan peran-mu di atas style-imitation.",
     );
   }
   const messages: BaseMessage[] = [new SystemMessage(parts.join(""))];

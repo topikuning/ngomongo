@@ -154,6 +154,33 @@ async function claimMessage(messageId: string): Promise<boolean> {
   }
 }
 
+// Lapisan dedup KEDUA berbasis konten (sender + text). Jaring pengaman
+// untuk kasus dimana msg.id antar event ternyata berbeda (mis. WAHA
+// engine berbeda menghasilkan id berbeda untuk pesan yang sama).
+// TTL pendek (5 detik) supaya tidak false-positive untuk user yang
+// memang sengaja mengirim pesan sama dua kali. 5 detik cukup karena
+// duplikat dari WAHA tiba dalam hitungan milidetik.
+const CONTENT_DEDUP_TTL_SECONDS = 5;
+
+function fnv1a(s: string): string {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = (h + ((h << 1) + (h << 4) + (h << 7) + (h << 8) + (h << 24))) >>> 0;
+  }
+  return h.toString(16);
+}
+
+async function claimByContent(sender: string, text: string): Promise<boolean> {
+  const key = `processed:content:${sender}:${fnv1a(text)}`;
+  try {
+    const r = await redis.set(key, "1", "EX", CONTENT_DEDUP_TTL_SECONDS, "NX");
+    return r === "OK";
+  } catch {
+    return true;
+  }
+}
+
 // Daftar event WAHA yang kita anggap "pesan masuk yang perlu dijawab".
 // Selain ini (mis. message.ack, presence.update, group.v2.*, dst) di-skip
 // senyap dengan label event-nya supaya log tidak penuh dengan noise.
@@ -230,6 +257,15 @@ export async function webhookRoutes(app: FastifyInstance) {
 
     if (!waNumber) {
       record(`skip: tidak bisa mendapatkan nomor dari ${incomingJid}`);
+      return reply.code(200).send({ ok: true });
+    }
+
+    // Dedup lapis kedua: kalau msg.id berbeda antar event tapi sender+text
+    // identik dalam 5 detik, anggap duplikat. Jaring pengaman untuk
+    // kasus dedup-by-id meleset.
+    const contentFresh = await claimByContent(waNumber, text);
+    if (!contentFresh) {
+      record(`skip: duplikat konten (sender=${waNumber}, text identik dalam ${CONTENT_DEDUP_TTL_SECONDS}s terakhir — fallback dedup)`);
       return reply.code(200).send({ ok: true });
     }
 
