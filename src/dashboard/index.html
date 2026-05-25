@@ -190,6 +190,11 @@
 
     <div class="card">
       <h2>Daftar Nomor Whitelist</h2>
+      <p class="muted" style="margin-top:-6px;font-size:13px">
+        Ubah <b>Role</b> langsung dari dropdown di kolomnya — tersimpan otomatis per-nomor.
+        Untuk mengisi memori awal AI tentang lawan bicara, klik <b>Import Riwayat Chat</b>
+        (file .txt/.zip hasil <i>Export chat</i> di WhatsApp).
+      </p>
       <div id="wl-table"></div>
     </div>
   </section>
@@ -339,36 +344,60 @@ async function loadRolesIntoSelect() {
     roles.map(r => `<option value="${r.id}">${escapeHtml(r.nama)}${r.isDefault ? " (default)" : ""}</option>`).join("");
 }
 
+let ROLES_CACHE = [];
+
 async function loadWhitelist() {
   try {
+    ROLES_CACHE = await api("/api/roles");
     const list = await api("/api/whitelist");
     const tbl = $("#wl-table");
     if (list.length === 0) { tbl.innerHTML = '<div class="empty">Belum ada nomor</div>'; return; }
     tbl.innerHTML = `<table>
       <thead><tr>
-        <th>Nomor</th><th>Nama</th><th>Role</th><th>Konteks</th><th>Status</th><th>Initial Summary</th><th></th>
+        <th>Nomor</th><th>Nama</th><th style="min-width:180px">Role (per-nomor)</th><th>Konteks</th><th>Status</th><th>Initial Summary</th><th></th>
       </tr></thead>
       <tbody>${list.map(rowWl).join("")}</tbody></table>`;
   } catch (e) { toast(e.message, "err"); }
+}
+
+function roleOptionsFor(currentRoleId) {
+  const def = ROLES_CACHE.find(r => r.isDefault);
+  const defLabel = def ? `— default global (${escapeHtml(def.nama)}) —` : "— default global —";
+  const opts = [`<option value="">${defLabel}</option>`]
+    .concat(ROLES_CACHE.map(r =>
+      `<option value="${r.id}" ${r.id === currentRoleId ? "selected" : ""}>${escapeHtml(r.nama)}${r.isDefault ? " (default)" : ""}</option>`));
+  return opts.join("");
 }
 
 function rowWl(w) {
   return `<tr>
     <td><b>${escapeHtml(w.waNumber)}</b></td>
     <td>${escapeHtml(w.displayName || "—")}</td>
-    <td>${w.role ? `<span class="badge-role">${escapeHtml(w.role.nama)}</span>` : '<span class="muted">default</span>'}</td>
+    <td>
+      <select onchange="setWlRole(${w.id}, this.value)" style="font-size:12px;padding:6px 8px">
+        ${roleOptionsFor(w.roleId)}
+      </select>
+    </td>
     <td style="max-width:240px"><span class="muted">${escapeHtml((w.initialContext || "").slice(0, 80))}${(w.initialContext || "").length > 80 ? "…" : ""}</span></td>
     <td>${w.isActive ? '<span class="pill on">aktif</span>' : '<span class="pill off">nonaktif</span>'}</td>
     <td>${w.initialSummaryReady ? '<span class="pill on">siap</span>' : '<span class="pill warn">belum</span>'}</td>
     <td><div class="actions">
-      <button class="btn-ghost" onclick="editWl(${w.id})">Edit</button>
+      <button class="btn-ghost" onclick="editWl(${w.id})">Edit Nama/Konteks</button>
       <button class="btn-ghost" onclick="toggleWl(${w.id}, ${!w.isActive})">${w.isActive ? "Nonaktifkan" : "Aktifkan"}</button>
-      <button class="btn-ghost" onclick="uploadWl(${w.id})">Upload Export</button>
-      <button class="btn-ghost" onclick="buildFromText(${w.id})">Bangun dari Teks</button>
+      <button class="btn-ghost" onclick="uploadWl(${w.id})" title="Upload file .txt/.zip hasil 'Export chat' WhatsApp">Import Riwayat Chat</button>
+      <button class="btn-ghost" onclick="buildFromText(${w.id})">Summary dari Teks Konteks</button>
       <button class="btn-ghost" onclick="viewSummary('${w.waNumber}')">Lihat Summary</button>
       <button class="btn-danger" onclick="delWl(${w.id})">Hapus</button>
     </div></td>
   </tr>`;
+}
+
+async function setWlRole(id, value) {
+  const roleId = value === "" ? null : Number(value);
+  try {
+    await api(`/api/whitelist/${id}`, { method: "PUT", body: JSON.stringify({ roleId }) });
+    toast(roleId ? "Role nomor diperbarui" : "Nomor dikembalikan ke default global");
+  } catch (e) { toast(e.message, "err"); }
 }
 
 async function addWhitelist() {
@@ -402,15 +431,11 @@ async function editWl(id) {
   const w = list.find(x => x.id === id);
   if (!w) return;
   const displayName = prompt("Nama tampilan:", w.displayName || "") ?? w.displayName;
-  const initialContext = prompt("Konteks awal:", w.initialContext || "") ?? w.initialContext;
-  const roles = await api("/api/roles");
-  const opts = ["(default global)", ...roles.map(r => `${r.id}: ${r.nama}`)].join("\n");
-  const sel = prompt(`Role ID (kosongkan untuk default global)\n${opts}`, w.roleId || "");
-  const roleId = sel === "" ? null : Number(sel) || null;
+  const initialContext = prompt("Konteks awal (teks bebas):", w.initialContext || "") ?? w.initialContext;
   try {
     await api(`/api/whitelist/${id}`, {
       method: "PUT",
-      body: JSON.stringify({ displayName, initialContext, roleId }),
+      body: JSON.stringify({ displayName, initialContext }),
     });
     toast("Diperbarui");
     loadWhitelist();
