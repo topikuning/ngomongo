@@ -197,6 +197,44 @@
   }
   button.btn-danger-solid:hover { filter: brightness(1.1); }
 
+  /* ===== Sender picker (import riwayat chat) ===== */
+  .sender-picker-intro {
+    background: var(--panel-2); border: 1px solid var(--border);
+    border-radius: 8px; padding: 12px 14px; margin-bottom: 14px;
+    font-size: 13px; line-height: 1.55; color: var(--muted);
+  }
+  .sender-picker-intro b { color: var(--text); }
+  .sender-list { display: flex; flex-direction: column; gap: 10px; }
+  .sender-option {
+    display: flex; gap: 12px;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 16px;
+    cursor: pointer;
+    transition: border-color .12s;
+  }
+  .sender-option:hover { border-color: var(--accent-2); }
+  .sender-option input[type="radio"] {
+    margin-top: 4px; width: 18px; height: 18px; flex: 0 0 18px; accent-color: var(--accent);
+  }
+  .sender-option:has(input:checked) {
+    border-color: var(--accent);
+    background: rgba(37,211,102,0.06);
+  }
+  .sender-info { flex: 1; min-width: 0; }
+  .sender-name { font-size: 15px; font-weight: 600; margin-bottom: 6px; }
+  .sender-name .count { font-size: 12px; color: var(--muted); font-weight: 400; margin-left: 6px; }
+  .sender-samples { display: flex; flex-direction: column; gap: 4px; }
+  .sender-sample {
+    font-size: 12px; color: var(--muted);
+    background: var(--bg);
+    border-radius: 6px;
+    padding: 6px 9px;
+    word-break: break-word;
+    line-height: 1.45;
+  }
+
   /* ===== Webhook log ===== */
   .wh-list { display: flex; flex-direction: column; gap: 8px; }
   .wh-entry {
@@ -317,11 +355,15 @@
 
     <div class="card">
       <h2>Daftar Nomor Whitelist</h2>
-      <p class="muted" style="margin-top:-6px;font-size:13px">
+      <p class="muted" style="margin-top:-6px;font-size:13px;line-height:1.55">
         Ubah <b>Role</b> dan <b>Provider AI</b> per-nomor langsung dari dropdown di kolomnya — tersimpan otomatis.
-        Pilih "default global" untuk memakai role/provider yang ditandai default di tab Role AI / AI Provider.
-        Untuk mengisi memori awal AI tentang lawan bicara, klik <b>Import Riwayat Chat</b>
-        (file .txt/.zip hasil <i>Export chat</i> di WhatsApp).
+        Pilih "default global" untuk memakai yang ditandai default di tab Role AI / AI Provider.
+        <br>
+        <b>Import Riwayat Chat</b>: pilih file .txt/.zip hasil
+        <i>Export chat</i> WhatsApp. Setelah file di-upload, sistem
+        akan menampilkan partisipan dan minta kamu memilih
+        <b>siapa yang AI perankan</b>. Summary terstruktur dengan peran
+        terkunci akan tersimpan dan dipakai sebagai memori awal.
       </p>
       <div id="wl-table"></div>
     </div>
@@ -804,16 +846,29 @@ function uploadWl(id) {
     if (!inp.files[0]) return;
     const fd = new FormData();
     fd.append("file", inp.files[0]);
-    toast("Memproses file, harap tunggu…");
+    toast("Memproses file & menganalisis partisipan…");
+    let preview;
     try {
-      const res = await fetch(`/api/whitelist/${id}/upload-export`, { method: "POST", body: fd });
+      const res = await fetch(`/api/whitelist/${id}/preview-export`, { method: "POST", body: fd });
       if (!res.ok) throw new Error((await res.json()).error || res.statusText);
-      const j = await res.json();
-      toast(`Selesai. ${j.messageCount} pesan diparse.`);
+      preview = await res.json();
+    } catch (e) { toast(e.message, "err"); return; }
+
+    // Step 2: pilih peran AI di modal
+    const aiSenderName = await showSenderPickerModal(preview);
+    if (!aiSenderName) return; // user batal
+
+    toast("Membangun summary, mungkin 5-15 detik…");
+    try {
+      const r = await api(`/api/whitelist/${id}/build-summary-from-export`, {
+        method: "POST",
+        body: JSON.stringify({ previewId: preview.previewId, aiSenderName }),
+      });
+      toast(`Summary tersimpan dari ${r.messageCount} pesan`);
       loadWhitelist();
       await showInfoModal({
-        title: `Initial Summary tersimpan (${j.messageCount} pesan)`,
-        content: j.summary,
+        title: `Initial Summary — AI memerankan: ${r.aiSenderName}`,
+        content: r.summary,
         isCode: true,
         wide: true,
       });
@@ -822,10 +877,82 @@ function uploadWl(id) {
   inp.click();
 }
 
+function showSenderPickerModal(preview) {
+  return new Promise((resolve) => {
+    // Default pilih sender dengan pesan terbanyak (asumsi wajar: yang
+    // lebih sering bicara di chat = yang punya HP / yang export).
+    const sendersHtml = preview.senders.map((s, i) => `
+      <label class="sender-option">
+        <input type="radio" name="ai-sender" value="${escapeHtml(s.sender)}" ${i === 0 ? "checked" : ""}>
+        <div class="sender-info">
+          <div class="sender-name">${escapeHtml(s.sender)}<span class="count">${s.count} pesan</span></div>
+          <div class="sender-samples">
+            ${s.samples.slice(0, 3).map(c =>
+              `<div class="sender-sample">"${escapeHtml(c.slice(0, 150))}${c.length > 150 ? "…" : ""}"</div>`
+            ).join("")}
+          </div>
+        </div>
+      </label>
+    `).join("");
+
+    const { overlay } = _openModal(`
+      <div class="modal-header">
+        <h3>Pilih peran AI dari riwayat chat ini</h3>
+        <button type="button" class="modal-close" aria-label="Tutup">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="sender-picker-intro">
+          Ditemukan <b>${preview.totalMessages}</b> pesan dari
+          <b>${preview.senders.length}</b> partisipan.
+          Pilih siapa yang akan <b>AI perankan</b> — bot akan
+          membalas seakan-akan dia adalah orang ini, meniru tone &amp;
+          panggilan yang orang itu pakai untuk lawan bicara.
+        </div>
+        <div class="sender-list">${sendersHtml}</div>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn-ghost" data-modal-cancel>Batal</button>
+        <button type="button" class="btn" data-modal-submit>Buat Summary dengan Peran Ini</button>
+      </div>
+    `, { wide: true });
+
+    let esc;
+    const close = (val) => { _closeModal(esc); resolve(val); };
+    esc = _bindClose(overlay, () => close(null));
+    overlay.querySelector("[data-modal-cancel]").addEventListener("click", () => close(null));
+    overlay.querySelector("[data-modal-submit]").addEventListener("click", () => {
+      const sel = overlay.querySelector('input[name="ai-sender"]:checked');
+      if (!sel) { toast("Pilih dulu peran AI", "err"); return; }
+      close(sel.value);
+    });
+  });
+}
+
 async function buildFromText(id) {
+  // Tanyakan optional: AI memerankan siapa? Lawan bicara siapa?
+  const w = (await api("/api/whitelist")).find(x => x.id === id);
+  const data = await showFormModal({
+    title: "Bangun summary dari teks konteks",
+    fields: [
+      { name: "aiPersonaName", label: "AI memerankan siapa? (opsional)",
+        placeholder: "mis. Hery Setiawan — kosongkan untuk pakai role di tab Role AI" },
+      { name: "humanName", label: "Lawan bicara (opsional)", value: w?.displayName || "",
+        placeholder: "Nama lawan bicara. Default: nama tampilan whitelist." },
+    ],
+    submitLabel: "Buat Summary",
+  });
+  if (!data) return;
+
+  toast("Membangun summary…");
   try {
-    const r = await api(`/api/whitelist/${id}/build-summary-from-text`, { method: "POST" });
-    toast("Summary dibuat");
+    const r = await api(`/api/whitelist/${id}/build-summary-from-text`, {
+      method: "POST",
+      body: JSON.stringify({
+        aiPersonaName: data.aiPersonaName,
+        humanName: data.humanName,
+      }),
+    });
+    toast("Summary tersimpan");
     loadWhitelist();
     await showInfoModal({
       title: "Initial Summary (dari konteks teks)",
