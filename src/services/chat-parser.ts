@@ -180,6 +180,7 @@ export async function summarizeChatExport(
   waNumber: string,
   aiSenderName: string,
   manualContext?: string,
+  options?: { maxChars?: number },
 ): Promise<string> {
   const bySender = groupBySender(messages);
   const aiMessages = bySender.get(aiSenderName);
@@ -201,7 +202,7 @@ export async function summarizeChatExport(
 
   // LLM hanya menganalisis hubungan/topik/fakta — TIDAK mendikte
   // gaya bicara (gaya datang dari contoh verbatim).
-  const sample = takeSample(messages);
+  const sample = takeSample(messages, options?.maxChars ?? 1_200_000);
   const prompt = await renderPrompt("summary.chat-export.analysis", {
     aiSenderName,
     humanName,

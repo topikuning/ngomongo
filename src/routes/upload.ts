@@ -89,22 +89,83 @@ export async function uploadRoutes(app: FastifyInstance) {
     }
 
     const parsed = parseWhatsAppExport(raw);
-    try {
-      const summary = await summarizeChatExport(
+    // Pola error context-window dari berbagai provider:
+    //   OpenAI    : "This model's maximum context length is X tokens.
+    //               However, your messages resulted in Y tokens.
+    //               Please reduce the length of the messages..."
+    //   Mistral   : "messages tokens exceeds the maximum context length..."
+    //   Groq      : "Please reduce the length of the messages..."
+    //   Anthropic : "max_tokens" / "input is too long"
+    //   Google    : "exceeds the context window limit"
+    const isContextErr = (msg: string) =>
+      /(reduce the length|exceeds (the )?(maximum |context )?context|context length|input is too long|too many tokens|maximum.*tokens|400|context window)/i.test(
+        msg,
+      );
+
+    const tryGenerate = async (maxChars?: number) => {
+      return summarizeChatExport(
         parsed,
         entry.waNumber,
         aiSenderName,
         entry.initialContext || undefined,
+        maxChars ? { maxChars } : undefined,
       );
-      await setInitialSummary(entry.waNumber, summary);
-      await redis.del(`export:preview:${previewId}`);
-      return { ok: true, messageCount: parsed.length, summary, aiSenderName };
-    } catch (err) {
-      app.log.error({ err }, "gagal menghasilkan initial summary");
-      return reply
-        .code(500)
-        .send({ error: "gagal menghasilkan summary: " + (err as Error).message });
+    };
+
+    let summary: string;
+    let sampled = false;
+    let sampledNote = "";
+    try {
+      summary = await tryGenerate(); // default 1.2M chars
+    } catch (err1) {
+      const msg1 = (err1 as Error).message;
+      if (!isContextErr(msg1)) {
+        app.log.error({ err: err1 }, "gagal menghasilkan initial summary");
+        return reply.code(500).send({
+          error: "Gagal generate summary: " + msg1,
+        });
+      }
+      // Auto-retry dengan sample lebih kecil.
+      app.log.warn({ msg1 }, "context overflow, retry dengan 120K chars");
+      try {
+        summary = await tryGenerate(120_000);
+        sampled = true;
+        sampledNote =
+          "Chat dipotong (start+middle+end) karena provider AI yang dipilih tidak muat menerima full chat. Untuk analisis penuh, pakai provider context besar: Gemini 2.5 Pro/Flash (1M), DeepSeek (128K), Mistral Large (128K), atau Groq Llama 3.3 70B (128K).";
+      } catch (err2) {
+        const msg2 = (err2 as Error).message;
+        if (!isContextErr(msg2)) {
+          return reply.code(500).send({
+            error: "Gagal generate summary (retry kecil): " + msg2,
+          });
+        }
+        // Retry terakhir dengan 30K chars (fit di semua model termasuk Mistral Medium)
+        app.log.warn({ msg2 }, "masih overflow, retry final dengan 30K chars");
+        try {
+          summary = await tryGenerate(30_000);
+          sampled = true;
+          sampledNote =
+            "Chat dipotong drastis (~7K token) karena provider AI yang dipilih punya context window kecil. Hasil analisis terbatas — pakai provider dengan context besar untuk hasil maksimal.";
+        } catch (err3) {
+          return reply.code(500).send({
+            error:
+              "Gagal generate summary bahkan dengan sample kecil: " +
+              (err3 as Error).message,
+          });
+        }
+      }
     }
+
+    await setInitialSummary(entry.waNumber, summary);
+    await redis.del(`export:preview:${previewId}`);
+    return {
+      ok: true,
+      messageCount: parsed.length,
+      summary,
+      aiSenderName,
+      sampled,
+      sampledNote: sampled ? sampledNote : undefined,
+    };
   });
 
   /**

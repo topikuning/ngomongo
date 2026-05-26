@@ -124,14 +124,25 @@
   .toast {
     position: fixed; right: 20px; bottom: 20px;
     background: var(--panel-2); border: 1px solid var(--border);
-    color: var(--text); padding: 10px 14px; border-radius: 8px;
+    color: var(--text); padding: 12px 16px; border-radius: 8px;
     box-shadow: 0 8px 20px rgba(0,0,0,0.4);
     opacity: 0; transform: translateY(10px); transition: all .2s;
     z-index: 999;
+    max-width: 480px;
+    display: flex; align-items: flex-start; gap: 10px;
+    font-size: 14px; line-height: 1.5;
+    word-break: break-word;
   }
   .toast.show { opacity: 1; transform: translateY(0); }
   .toast.ok { border-color: var(--accent); }
-  .toast.err { border-color: var(--danger); }
+  .toast.err { border-color: var(--danger); background: rgba(232,91,91,0.08); }
+  .toast .toast-msg { flex: 1; min-width: 0; }
+  .toast .toast-close {
+    background: transparent; border: none; color: var(--muted);
+    cursor: pointer; font-size: 20px; line-height: 1; padding: 0 2px;
+    flex: 0 0 auto;
+  }
+  .toast .toast-close:hover { color: var(--text); }
   details { background: var(--panel-2); border: 1px solid var(--border); border-radius: 6px; padding: 10px 12px; margin-bottom: 8px; }
   details summary { cursor: pointer; user-select: none; }
   pre { white-space: pre-wrap; word-break: break-word; background: var(--bg); padding: 12px; border-radius: 6px; font-size: 12px; }
@@ -574,7 +585,10 @@
   </section>
 </main>
 
-<div id="toast" class="toast"></div>
+<div id="toast" class="toast">
+  <div class="toast-msg"></div>
+  <button class="toast-close" type="button" aria-label="Tutup" onclick="dismissToast()">&times;</button>
+</div>
 <div id="modal-root"></div>
 
 <!-- Saran model per provider untuk autocomplete (datalist).
@@ -646,11 +660,23 @@ function tab(name) {
 }
 $$("nav button").forEach(b => b.addEventListener("click", () => tab(b.dataset.tab)));
 
+let _toastTimer = null;
 function toast(msg, kind = "ok") {
   const t = $("#toast");
-  t.textContent = msg;
+  t.querySelector(".toast-msg").textContent = msg;
   t.className = "toast show " + kind;
-  setTimeout(() => t.className = "toast " + kind, 3000);
+  if (_toastTimer) { clearTimeout(_toastTimer); _toastTimer = null; }
+  // Error stays sampai user dismiss (atau 15 detik). OK 5 detik.
+  const dur = kind === "err" ? 15000 : 5000;
+  _toastTimer = setTimeout(() => {
+    t.className = "toast " + kind;
+    _toastTimer = null;
+  }, dur);
+}
+function dismissToast() {
+  const t = $("#toast");
+  t.className = "toast";
+  if (_toastTimer) { clearTimeout(_toastTimer); _toastTimer = null; }
 }
 
 // ===================== MODAL =====================
@@ -960,21 +986,33 @@ function uploadWl(id) {
     const aiSenderName = await showSenderPickerModal(preview);
     if (!aiSenderName) return; // user batal
 
-    toast("Membangun summary, mungkin 5-15 detik…");
+    toast("Membangun summary, mungkin 5-30 detik…");
     try {
       const r = await api(`/api/whitelist/${id}/build-summary-from-export`, {
         method: "POST",
         body: JSON.stringify({ previewId: preview.previewId, aiSenderName }),
       });
-      toast(`Summary tersimpan dari ${r.messageCount} pesan`);
+      toast(r.sampled
+        ? `Summary tersimpan dari ${r.messageCount} pesan (chat dipotong — lihat catatan)`
+        : `Summary tersimpan dari ${r.messageCount} pesan (full chat dianalisis)`);
       loadWhitelist();
+      const header = r.sampled ? "[!] CHAT DIPOTONG\n" + r.sampledNote + "\n\n" : "";
       await showInfoModal({
         title: `Initial Summary — AI memerankan: ${r.aiSenderName}`,
-        content: r.summary,
+        content: header + r.summary,
         isCode: true,
         wide: true,
       });
-    } catch (e) { toast(e.message, "err"); }
+    } catch (e) {
+      // Untuk error upload, tampilkan FULL message di modal (toast
+      // pendek tidak cukup untuk error API panjang).
+      await showInfoModal({
+        title: "Gagal membuat summary",
+        content: e.message,
+        isCode: true,
+        wide: true,
+      });
+    }
   };
   inp.click();
 }
